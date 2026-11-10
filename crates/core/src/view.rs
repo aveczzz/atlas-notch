@@ -87,6 +87,8 @@ pub struct VolumeLine {
 pub struct ClaudeWidget {
     /// Só as sessões com algo a mostrar. Vazio = "Sem sessões".
     pub sessions: Vec<SessionLine>,
+    /// Limites da conta (5 horas e semana), quando a linha de estado do Claude Code os deu.
+    pub usage: Vec<UsageBar>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -96,6 +98,10 @@ pub struct SessionLine {
     pub state: SessionState,
     /// Botão "Abrir no VS Code".
     pub focus: ControlId,
+    /// Modelo curto ("Opus 5.5"), se se sabe.
+    pub model: Option<String>,
+    /// Contexto usado da conversa, se se sabe.
+    pub context: Option<ContextUse>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +136,7 @@ pub enum Icon {
     BatteryCharging,
     Headphones,
     Copy,
+    Codex,
     /// Ícone de uma app externa, por nome (resolvido pelo renderer).
     Named(String),
 }
@@ -207,4 +214,23 @@ pub struct Toast {
     pub icon: Option<ImageData>,
     /// Clicar no toast: abre a app.
     pub open: ControlId,
+}
+
+/// Quanto do contexto da conversa está ocupado.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContextUse {
+    /// 0 a 1.
+    pub fraction: f32,
+    /// "43%".
+    pub label: String,
+}
+
+/// Uma janela de limite da conta ("5 h", "Semana").
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsageBar {
+    pub name: String,
+    /// 0 a 1.
+    pub fraction: f32,
+    /// "37% · 2h10" (percentagem e quando reinicia).
+    pub label: String,
 }

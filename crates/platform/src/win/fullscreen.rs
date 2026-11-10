@@ -13,7 +13,12 @@ use super::window::{Input, push};
 use windows::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONULL, MONITORINFO, MonitorFromWindow};
 use windows::Win32::UI::Shell::{ABM_NEW, ABM_REMOVE, ABN_FULLSCREENAPP, APPBARDATA, SHAppBarMessage};
-use windows::Win32::UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowRect, WM_APP};
+use std::cell::Cell;
+use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook, UnhookWinEvent};
+use windows::Win32::UI::WindowsAndMessaging::{
+    EVENT_SYSTEM_FOREGROUND, GetClassNameW, GetForegroundWindow, GetWindowRect, IsZoomed, WINEVENT_OUTOFCONTEXT,
+    WINEVENT_SKIPOWNPROCESS, WM_APP,
+};
 
 /// Mensagem com que o shell avisa a appbar.
 pub const WM_APP_APPBAR: u32 = WM_APP + 2;
@@ -29,6 +34,36 @@ pub fn register(hwnd: HWND) {
     if unsafe { SHAppBarMessage(ABM_NEW, &mut d) } == 0 {
         log!("aviso de ecrã inteiro indisponível");
     }
+    // O aviso do shell só chega a certas transições, e uma perdida (um ecrã de boas-vindas no
+    // arranque do Windows) deixava a island escondida para sempre. A cada mudança de janela em
+    // primeiro plano (evento, sem polling) volta-se a ver o estado.
+    OURS.set(hwnd);
+    // SAFETY: a função de retorno tem a assinatura certa e só toca em estado desta thread;
+    // `WINEVENT_OUTOFCONTEXT` entrega-a na thread que registou, pelo ciclo de mensagens.
+    let hook = unsafe {
+        SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            None,
+            Some(on_foreground),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS,
+        )
+    };
+    if hook.is_invalid() {
+        log!("aviso de janela em primeiro plano indisponível");
+    }
+    HOOK.set(hook);
+}
+
+thread_local! {
+    static OURS: Cell<HWND> = Cell::new(HWND::default());
+    static HOOK: Cell<HWINEVENTHOOK> = Cell::new(HWINEVENTHOOK::default());
+}
+
+unsafe extern "system" fn on_foreground(_: HWINEVENTHOOK, _: u32, _: HWND, _: i32, _: i32, _: u32, _: u32) {
+    push(Input::Fullscreen(fullscreen_on_our_monitor(OURS.get())));
 }
 
 /// Retirar no `WM_DESTROY`, senão o shell guarda uma appbar morta.
@@ -36,6 +71,11 @@ pub fn unregister(hwnd: HWND) {
     let mut d = data(hwnd);
     // SAFETY: como em `register`.
     unsafe { SHAppBarMessage(ABM_REMOVE, &mut d) };
+    let hook = HOOK.replace(HWINEVENTHOOK::default());
+    if !hook.is_invalid() {
+        // SAFETY: o gancho registado em `register`, desfeito uma vez.
+        let _ = unsafe { UnhookWinEvent(hook) };
+    }
 }
 
 /// Trata a mensagem `WM_APP_APPBAR`. Só nos interessa `ABN_FULLSCREENAPP`.
@@ -53,7 +93,9 @@ fn fullscreen_on_our_monitor(ours: HWND) -> bool {
     // `cbSize` está preenchido. Uma janela que entretanto fechou só faz as chamadas falhar.
     unsafe {
         let fg = GetForegroundWindow();
-        if fg.is_invalid() || fg == ours || is_desktop(fg) {
+        // Uma janela maximizada nunca é ecrã inteiro, mesmo que cubra o monitor (barra de tarefas
+        // em esconder automático, janelas sem moldura como o VS Code).
+        if fg.is_invalid() || fg == ours || is_desktop(fg) || IsZoomed(fg).as_bool() {
             return false;
         }
         let monitor = MonitorFromWindow(ours, MONITOR_DEFAULTTONULL);

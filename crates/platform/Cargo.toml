@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 island-core.workspace = true
 island-proto.workspace = true
+serde_json.workspace = true
 
 # Só no Windows. Acrescentar features à medida que cada parte é implementada:
 # cada feature a mais aumenta o tempo de compilação, não o binário.
@@ -35,6 +36,7 @@ features = [
     "Win32_System_Power",
     "Win32_System_DataExchange",
     "Win32_UI_Input",
+    "Win32_UI_Accessibility",
     "Win32_Devices_FunctionDiscovery",
     # Encontrar o executável de uma app pelo nome (ícone da música)
     "Win32_System_Diagnostics_ToolHelp",

@@ -73,6 +73,12 @@ impl Engine {
         any && self.recompute(now)
     }
 
+    /// Recalcula o painel sem evento nenhum: os blocos dependem da hora (durações, quando um
+    /// limite reinicia). A plataforma chama-o quando o painel abre. `true` se algo mudou.
+    pub fn refresh(&mut self, now: Instant) -> bool {
+        self.recompute(now)
+    }
+
     /// Chamar quando `next_deadline()` passa.
     pub fn on_deadline(&mut self, now: Instant) -> bool {
         for (i, m) in self.modules.iter_mut().enumerate() {

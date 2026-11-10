@@ -50,7 +50,7 @@ use windows::Win32::Graphics::DirectComposition::{
 use windows::Win32::Graphics::DirectWrite::{
     DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT,
     DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_PARAGRAPH_ALIGNMENT_CENTER,
-    DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_METRICS, DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER,
+    DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_TRAILING, DWRITE_TEXT_METRICS, DWRITE_TRIMMING, DWRITE_TRIMMING_GRANULARITY_CHARACTER,
     DWRITE_WORD_WRAPPING_NO_WRAP, DWriteCreateFactory, IDWriteFactory, IDWriteFontCollection, IDWriteTextFormat,
     IDWriteTextLayout,
 };
@@ -131,6 +131,8 @@ pub(super) struct TextKit {
     pub(super) caption_plain: IDWriteTextFormat,
     /// Aviso centrado (11).
     pub(super) caption_center: IDWriteTextFormat,
+    /// Etiquetas pequenas encostadas à direita (11): modelo, percentagens.
+    pub(super) caption_right: IDWriteTextFormat,
     /// Separadores (12 semibold), centrados.
     pub(super) tab: IDWriteTextFormat,
 }
@@ -536,7 +538,7 @@ impl Renderer {
                 draw_toast(&dc, &gpu.white, &gpu.paint, toast, &self.content, icon, s, alpha * fade_in);
                 Ok(())
             } else if self.content.compact {
-                draw_compact(&dc, &gpu.white, &self.content, s, alpha * fade_in)
+                draw_compact(&dc, &gpu.white, &gpu.paint, &self.content, s, alpha * fade_in)
             } else {
                 Ok(())
             };
@@ -550,7 +552,7 @@ impl Renderer {
                 if let Some(t) = &prev.toast {
                     draw_toast(&dc, &gpu.white, &gpu.paint, t, prev, None, s, a);
                 } else if prev.compact {
-                    let _ = draw_compact(&dc, &gpu.white, prev, s, a);
+                    let _ = draw_compact(&dc, &gpu.white, &gpu.paint, prev, s, a);
                 }
                 dc.PopAxisAlignedClip();
             }
@@ -562,7 +564,7 @@ impl Renderer {
 
         let pulse = self.content.pulse && !self.expanded && alpha > 0.5;
         let dot = (
-            self.placement.window.w as f32 / 2.0 + (s.w / 2.0 - PAD - DOT) * scale,
+            self.placement.window.w as f32 / 2.0 + (compact_left(&self.content, s) + self.content.compact_w - DOT) * scale,
             (s.h / 2.0 - DOT / 2.0) * scale,
         );
         gpu.set_pulse(pulse, dot)?;
@@ -776,6 +778,77 @@ unsafe fn draw_toast(
     }
 }
 
+/// Laranja do Claude (#D97757) e lavanda do Codex.
+const CLAUDE_ORANGE: D2D1_COLOR_F = D2D1_COLOR_F { r: 0.851, g: 0.467, b: 0.341, a: 1.0 };
+const CODEX_LAVENDER: D2D1_COLOR_F = D2D1_COLOR_F { r: 0.62, g: 0.60, b: 1.0, a: 1.0 };
+
+/// Desenha o logótipo do Claude (o bonequinho em pixeis do Claude Code) ou do Codex (`>_`
+/// num quadrado arredondado) numa caixa `size` x `size` em (`x`, `y`). Devolve `false` se o
+/// ícone não é um destes (fica para o glifo da fonte).
+///
+/// # Safety
+/// `dc` tem de estar entre `BeginDraw` e `EndDraw`.
+unsafe fn draw_mark(
+    dc: &ID2D1DeviceContext,
+    paint: &ID2D1SolidColorBrush,
+    icon: Option<&Icon>,
+    x: f32,
+    y: f32,
+    size: f32,
+    alpha: f32,
+) -> bool {
+    let rect = |brush_color: &D2D1_COLOR_F, l: f32, t: f32, r: f32, b: f32| {
+        // SAFETY: garantido por quem chama (contexto dentro de `BeginDraw`).
+        unsafe {
+            paint.SetColor(brush_color);
+            paint.SetOpacity(alpha);
+            dc.FillRectangle(&D2D_RECT_F { left: l, top: t, right: r, bottom: b }, paint);
+        }
+    };
+    match icon {
+        Some(Icon::Claude) => {
+            // Grelha de 16 x 12: corpo, dois braços, quatro pernas e dois olhos (buracos).
+            let k = size / 16.0;
+            let oy = y + (size - 12.0 * k) / 2.0;
+            let r = |l: f32, t: f32, rr: f32, b: f32, c: &D2D1_COLOR_F| rect(c, x + l * k, oy + t * k, x + rr * k, oy + b * k);
+            r(2.0, 0.0, 14.0, 8.0, &CLAUDE_ORANGE);
+            r(0.0, 3.0, 2.0, 6.0, &CLAUDE_ORANGE);
+            r(14.0, 3.0, 16.0, 6.0, &CLAUDE_ORANGE);
+            for lx in [3.0, 5.5, 9.0, 11.5] {
+                r(lx, 8.0, lx + 1.5, 11.5, &CLAUDE_ORANGE);
+            }
+            r(4.0, 2.5, 5.5, 4.5, &BLACK);
+            r(10.5, 2.5, 12.0, 4.5, &BLACK);
+            true
+        }
+        Some(Icon::Codex) => {
+            let k = size / 20.0;
+            // SAFETY: garantido por quem chama.
+            unsafe {
+                paint.SetColor(&CODEX_LAVENDER);
+                paint.SetOpacity(alpha);
+                let body = D2D_RECT_F { left: x, top: y, right: x + size, bottom: y + size };
+                dc.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect: body, radiusX: 6.0 * k, radiusY: 6.0 * k }, paint);
+                paint.SetColor(&BLACK);
+                let p = |px: f32, py: f32| Vector2 { X: x + px * k, Y: y + py * k };
+                let (w, stroke) = (2.0 * k, None::<&ID2D1StrokeStyle>);
+                dc.DrawLine(p(6.0, 6.5), p(10.5, 10.0), paint, w, stroke);
+                dc.DrawLine(p(10.5, 10.0), p(6.0, 13.5), paint, w, stroke);
+                dc.DrawLine(p(11.5, 14.0), p(15.0, 14.0), paint, w, stroke);
+            }
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Onde começa o conteúdo compacto: centrado no notch quando cabe com folga (mais estreito do
+/// que o mínimo), encostado à margem quando ocupa tudo. À medida que a forma cresce passa de
+/// uma coisa à outra sem salto (nos dois extremos dá o mesmo valor).
+fn compact_left(c: &Content, s: Size) -> f32 {
+    (-c.compact_w / 2.0).max(-s.w / 2.0 + PAD)
+}
+
 /// Ícone, texto e barra de progresso, centrados na altura do notch.
 ///
 /// # Safety
@@ -783,17 +856,23 @@ unsafe fn draw_toast(
 unsafe fn draw_compact(
     dc: &ID2D1DeviceContext,
     white: &ID2D1SolidColorBrush,
+    paint: &ID2D1SolidColorBrush,
     c: &Content,
     s: Size,
     alpha: f32,
 ) -> Result<()> {
-    let left = -s.w / 2.0 + PAD;
-    let right = s.w / 2.0 - PAD - if c.pulse { DOT + GAP } else { 0.0 };
+    let left = compact_left(c, s);
+    let right = left + c.compact_w - if c.pulse { DOT + GAP } else { 0.0 };
     // SAFETY: garantido por quem chama (contexto dentro de `BeginDraw`).
     unsafe {
         white.SetOpacity(alpha);
-        if let Some(icon) = &c.icon {
-            dc.DrawTextLayout(Vector2 { X: left, Y: (s.h - ICON_BOX) / 2.0 }, icon, white, D2D1_DRAW_TEXT_OPTIONS_NONE);
+        let kind = c.view.as_ref().map(|p| &p.view.compact.icon);
+        let top = (s.h - ICON_BOX) / 2.0;
+        // O Claude e o Codex têm o logótipo desenhado à mão; os outros usam um glifo da fonte.
+        if !draw_mark(dc, paint, kind, left, top, ICON_BOX, alpha)
+            && let Some(icon) = &c.icon
+        {
+            dc.DrawTextLayout(Vector2 { X: left, Y: top }, icon, white, D2D1_DRAW_TEXT_OPTIONS_NONE);
         }
         let x = left + ICON_BOX + GAP;
         if let Some((text, _, h)) = &c.text {
@@ -1029,6 +1108,7 @@ impl TextKit {
             caption: left(semi, 11.0)?,
             caption_plain: left(normal, 11.0)?,
             caption_center: center(&ui, normal, 11.0)?,
+            caption_right: aligned_right(format(&dwrite, &ui, normal, 11.0)?)?,
             tab: center(&ui, semi, 12.0)?,
             dwrite,
         })
@@ -1133,6 +1213,16 @@ fn format(dwrite: &IDWriteFactory, family: &HSTRING, weight: DWRITE_FONT_WEIGHT,
 }
 
 /// Centra na vertical (para desenhar no canto de um retângulo) e, se `center`, também na horizontal.
+/// Como `aligned`, mas com o texto encostado à direita.
+fn aligned_right(f: IDWriteTextFormat) -> Result<IDWriteTextFormat> {
+    // SAFETY: formato acabado de criar, ainda sem layouts.
+    unsafe {
+        f.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
+        f.SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING)?;
+    }
+    Ok(f)
+}
+
 fn aligned(f: IDWriteTextFormat, center: bool) -> Result<IDWriteTextFormat> {
     // SAFETY: formato acabado de criar, ainda sem layouts.
     unsafe {
@@ -1178,6 +1268,8 @@ fn glyph(icon: &Icon) -> char {
         Icon::BatteryCharging => '\u{E83E}',
         Icon::Headphones => '\u{E7F6}',
         Icon::Copy => '\u{E8C8}',
+        // O Claude e o Codex desenham-se à mão (`draw_mark`); isto só serve de reserva.
+        Icon::Codex => '\u{E756}',
         Icon::Named(_) => '\u{E946}',
     }
 }

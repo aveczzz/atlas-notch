@@ -27,6 +27,7 @@ mod dragdrop;
 mod exec;
 mod fullscreen;
 mod keys;
+mod notifyicon;
 mod geometry;
 mod ipc;
 mod media;
@@ -73,13 +74,54 @@ pub fn run(mut engine: Engine, dev_stdin: bool) -> io::Result<()> {
     // SAFETY: OLE (inclui COM STA) na thread UI, que bombeia mensagens como um STA exige.
     // OLE e não só COM: o arrastar e largar (`dragdrop`) precisa dele.
     unsafe { OleInitialize(None)? };
+    // Com `panic = "abort"` a app fecha sem dizer nada: o gancho deixa o motivo no log.
+    std::panic::set_hook(Box::new(|info| log!("PÂNICO: {info}")));
+    let attempt = relaunch_attempt();
+    log!("a arrancar (v{}, pid {}, tentativa {})", env!("CARGO_PKG_VERSION"), std::process::id(), attempt + 1);
+    let started = Instant::now();
     let result = run_loop(&mut engine, dev_stdin);
     // SAFETY: emparelha com o `OleInitialize` acima, na mesma thread.
     unsafe { OleUninitialize() };
+    match &result {
+        Ok(()) => log!("a sair normalmente (esteve {} s a correr)", started.elapsed().as_secs()),
+        Err(e) => {
+            log!("ERRO FATAL ao fim de {} s: {e}", started.elapsed().as_secs());
+            // Falhas no arranque do Windows (ecrã ou GPU ainda não prontos) costumam passar em
+            // segundos: tenta outra vez, noutro processo, em vez de ficar sem island.
+            // "Já há outra island" não é uma falha a repetir.
+            if e.kind() != io::ErrorKind::AlreadyExists && attempt < MAX_RELAUNCH && relaunch(attempt + 1) {
+                log!("relançada daqui a {} s", RELAUNCH_DELAY.as_secs());
+            }
+        }
+    }
     result
 }
 
+/// Quantas vezes a island se relança sozinha depois de uma falha.
+const MAX_RELAUNCH: u32 = 5;
+const RELAUNCH_DELAY: Duration = Duration::from_secs(4);
+const RELAUNCH_ENV: &str = "ISLAND_RELAUNCH";
+
+fn relaunch_attempt() -> u32 {
+    std::env::var(RELAUNCH_ENV).ok().and_then(|v| v.parse().ok()).unwrap_or(0)
+}
+
+/// Arranca outra cópia desta app com a contagem de tentativas. A pausa é feita no processo
+/// novo (nunca aqui, a segurar o pipe).
+fn relaunch(next_attempt: u32) -> bool {
+    let Ok(exe) = std::env::current_exe() else { return false };
+    std::process::Command::new(exe)
+        .env(RELAUNCH_ENV, next_attempt.to_string())
+        .args(std::env::args().skip(1))
+        .spawn()
+        .is_ok()
+}
+
 fn run_loop(engine: &mut Engine, dev_stdin: bool) -> io::Result<()> {
+    // Um relançamento começa com uma pausa: dá tempo ao ecrã e à GPU para ficarem prontos.
+    if relaunch_attempt() > 0 {
+        thread::sleep(RELAUNCH_DELAY);
+    }
     // Antes de tudo: se outra island já tem o pipe, esta sai sem abrir janela.
     let server = ipc::bind()?;
     let placement = window::placement()?;
@@ -93,6 +135,7 @@ fn run_loop(engine: &mut Engine, dev_stdin: bool) -> io::Result<()> {
     window::show(hwnd);
     window::register_hotkey(hwnd);
     window::register_system(hwnd);
+    notifyicon::register(hwnd);
     fullscreen::register(hwnd);
     if let Err(e) = dragdrop::register(hwnd) {
         log!("tray: sem arrastar e largar: {e}");
@@ -142,6 +185,11 @@ fn run_loop(engine: &mut Engine, dev_stdin: bool) -> io::Result<()> {
     settings::apply_autostart(cfg.autostart);
     renderer.set_glass(cfg.glass);
     let watcher = cfg_dir.as_deref().and_then(settings::Watcher::new);
+    // Limites da conta: o último valor que o `island-hook statusline` guardou (para mostrar ao
+    // arrancar, mesmo que a island estivesse fechada). Com ela aberta chegam ao vivo pelo pipe.
+    if let Some(u) = crate::usage::load_saved() {
+        engine.dispatch(Event::External(island_proto::Message::ClaudeUsage(u)), Instant::now());
+    }
     // A Tray da última sessão. Os ícones vêm do Shell, fora da thread UI, como ao largar.
     let mut saved_tray = Vec::new();
     if let Some(dir) = cfg_dir.as_deref().filter(|_| cfg.keep_tray) {
@@ -311,6 +359,8 @@ fn run_loop(engine: &mut Engine, dev_stdin: bool) -> io::Result<()> {
                     }
                 }
                 // Ficheiros arrastados por cima: abrir já no separador Tray.
+                // Sem mudança nenhuma (o caso normal a cada clique noutra janela): não mexer em nada.
+                Input::Fullscreen(on) if ui.fullscreen == (on && cfg.hide_in_fullscreen) => {}
                 Input::ToggleHidden | Input::Fullscreen(_) => {
                     match input {
                         Input::Fullscreen(on) => ui.fullscreen = on && cfg.hide_in_fullscreen,
@@ -345,6 +395,11 @@ fn run_loop(engine: &mut Engine, dev_stdin: bool) -> io::Result<()> {
                         add_tray_files(&proxy, paths);
                     }
                 }
+                Input::OpenConfig => match cfg_dir.as_deref().map(config::ensure_file) {
+                    Some(Ok(path)) => settings::open_config(&path),
+                    Some(Err(e)) => log!("config: {e}"),
+                    None => {}
+                },
                 Input::System(event) => {
                     if cfg.system_alerts {
                         redraw |= engine.dispatch(Event::System(event), now);
@@ -389,6 +444,10 @@ fn run_loop(engine: &mut Engine, dev_stdin: bool) -> io::Result<()> {
         if expanded != ui.expanded {
             ui.expanded = expanded;
             redraw = true;
+            // Os blocos dependem da hora (durações, quando um limite reinicia): ao abrir, refresca.
+            if expanded {
+                redraw |= engine.refresh(Instant::now());
+            }
         }
         while let Ok(event) = rx.try_recv() {
             if matches!(event, Event::System(_)) && !cfg.system_alerts {

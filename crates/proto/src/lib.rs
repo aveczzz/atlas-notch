@@ -8,6 +8,8 @@
 //! ```
 #![forbid(unsafe_code)]
 
+pub mod statusline;
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -54,6 +56,9 @@ pub enum Message {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ClaudeHook {
     pub event: HookEvent,
+    /// Que agente é (o Claude Code, ou o Codex). Mudam o ícone do notch.
+    #[serde(default, skip_serializing_if = "Agent::is_claude")]
+    pub agent: Agent,
     pub session_id: String,
     /// Nome da pasta do projeto (último componente do `cwd`). Usado para identificar
     /// a janela do VS Code certa.
@@ -69,6 +74,26 @@ pub struct ClaudeHook {
     /// Tokens no contexto depois da última resposta (entrada + cache). Calculado pelo hook.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_tokens: Option<u64>,
+}
+
+/// Quem está a trabalhar: o ícone do notch muda com o agente.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Agent {
+    #[default]
+    Claude,
+    Codex,
+}
+
+impl Agent {
+    pub fn is_claude(&self) -> bool {
+        *self == Self::Claude
+    }
+
+    /// `--agent <nome>` do `island-hook`. Desconhecido = Claude.
+    pub fn from_name(name: &str) -> Self {
+        if name.eq_ignore_ascii_case("codex") { Self::Codex } else { Self::Claude }
+    }
 }
 
 /// Uso da conta nas duas janelas do plano. Cada uma pode faltar (planos sem limite, ou antes da
@@ -311,5 +336,24 @@ mod tests {
         let Message::Show(s) = decode_line(line.as_bytes()).unwrap().msg else { panic!() };
         assert_eq!(s.title.chars().count(), MAX_TITLE_CHARS + 1); // + reticências
         assert_eq!(s.progress, Some(1.0));
+    }
+
+    #[test]
+    fn claude_usage_wire_format_is_flat_and_uses_our_names() {
+        let line = br#"{"v":1,"msg":{"type":"claude_usage","five_hour":{"used_pct":29.0,"resets_at":1794366000},"seven_day":{"used_pct":55.5}}}"#;
+        let Message::ClaudeUsage(u) = decode_line(line).unwrap().msg else { panic!("não é claude_usage") };
+        assert_eq!(u.five_hour, Some(UsageWindow { used_pct: 29.0, resets_at: Some(1_794_366_000) }));
+        assert_eq!(u.seven_day, Some(UsageWindow { used_pct: 55.5, resets_at: None }));
+        // E volta a sair igual (sem campos a mais para janelas ausentes).
+        let encoded = String::from_utf8(encode(&Envelope::new(Message::ClaudeUsage(ClaudeUsage { five_hour: None, seven_day: u.seven_day })))).unwrap();
+        assert!(encoded.contains(r#""type":"claude_usage""#) && !encoded.contains("five_hour"), "{encoded}");
+    }
+
+    #[test]
+    fn claude_usage_percentages_are_sanitized_on_receive() {
+        let line = br#"{"v":1,"msg":{"type":"claude_usage","five_hour":{"used_pct":900.0},"seven_day":{"used_pct":-4.0}}}"#;
+        let Message::ClaudeUsage(u) = decode_line(line).unwrap().msg else { panic!() };
+        assert_eq!(u.five_hour.unwrap().used_pct, 100.0);
+        assert_eq!(u.seven_day.unwrap().used_pct, 0.0);
     }
 }

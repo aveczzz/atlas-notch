@@ -81,6 +81,17 @@ struct SessionContent {
     status: IDWriteTextLayout,
     open: IDWriteTextLayout,
     focus: ControlId,
+    model: Option<IDWriteTextLayout>,
+    /// Fração do contexto e a percentagem escrita.
+    context: Option<(f32, IDWriteTextLayout)>,
+}
+
+/// Uma barra de limite da conta já com os textos prontos.
+#[derive(Debug)]
+struct UsageContent {
+    name: IDWriteTextLayout,
+    fraction: f32,
+    label: IDWriteTextLayout,
 }
 
 #[derive(Debug)]
@@ -90,6 +101,7 @@ struct ClaudeContent {
     /// "Sem sessões", quando não há nenhuma.
     empty: Option<IDWriteTextLayout>,
     sessions: Vec<SessionContent>,
+    usage: Vec<UsageContent>,
 }
 
 #[derive(Debug)]
@@ -151,7 +163,11 @@ impl PanelContent {
         if !rows.is_empty() {
             columns.push(Column::Rows);
         }
-        let l = geometry::panel_layout(&columns, claude.map_or(0, |(_, c)| c.sessions.len()));
+        let l = geometry::panel_layout_with(
+            &columns,
+            claude.map_or(0, |(_, c)| c.sessions.len()),
+            claude.map_or(0, |(_, c)| c.usage.len()),
+        );
         let fit = |text: &str, format: &IDWriteTextFormat, r: &Rect| t.layout(text, format, r.w, r.h);
 
         let tabs = Tab::LABELS.iter().zip(&l.tabs).map(|(label, r)| fit(label, &t.tab, r)).collect::<Result<_>>()?;
@@ -188,6 +204,22 @@ impl PanelContent {
                         status: fit(&s.status, &t.caption_plain, &row.status)?,
                         open: fit(&GLYPH_OPEN.to_string(), &t.icon_small, &row.button)?,
                         focus: s.focus,
+                        model: match (&s.model, row.model.w > 0.0) {
+                            (Some(m), true) => Some(fit(m, &t.caption_right, &row.model)?),
+                            _ => None,
+                        },
+                        context: match (&s.context, row.ctx_bar.w > 0.0) {
+                            (Some(c), true) => Some((c.fraction, fit(&c.label, &t.caption_right, &row.ctx_label)?)),
+                            _ => None,
+                        },
+                    });
+                }
+                let mut usage = Vec::with_capacity(l.usage.len());
+                for (u, slot) in w.usage.iter().zip(&l.usage) {
+                    usage.push(UsageContent {
+                        name: fit(&u.name, &t.caption_plain, &slot.name)?,
+                        fraction: u.fraction,
+                        label: fit(&u.label, &t.caption_right, &slot.label)?,
                     });
                 }
                 let empty = if w.sessions.is_empty() {
@@ -196,7 +228,7 @@ impl PanelContent {
                 } else {
                     None
                 };
-                Some(ClaudeContent { module, title: fit("CLAUDE CODE", &t.caption, &title_rect)?, empty, sessions })
+                Some(ClaudeContent { module, title: fit("CLAUDE CODE", &t.caption, &title_rect)?, empty, sessions, usage })
             }
             _ => None,
         };
@@ -295,6 +327,15 @@ impl PanelContent {
                 paint.SetOpacity(alpha * opacity);
                 let rect = D2D_RECT_F { left: r.x, top: r.y, right: r.right(), bottom: r.bottom() };
                 dc.FillRoundedRectangle(&D2D1_ROUNDED_RECT { rect, radiusX: radius, radiusY: radius }, paint);
+            }
+        };
+
+        // Barra fina (trilho de vidro e preenchimento): branca, laranja quando está quase cheia.
+        let meter = |bar: &Rect, fraction: f32| {
+            fill(bar, bar.h / 2.0, WHITE, 0.16);
+            let color = if fraction >= 0.85 { ORANGE } else { WHITE };
+            if fraction > 0.0 {
+                fill(&Rect { w: (bar.w * fraction).max(bar.h), ..*bar }, bar.h / 2.0, color, 0.9);
             }
         };
 
@@ -399,6 +440,19 @@ impl PanelContent {
                 text(&s.status, &row.status, WHITE, 0.55);
                 fill(&row.button, row.button.h / 2.0, WHITE, 0.12);
                 text(&s.open, &row.button, WHITE, 0.9);
+                if let Some(model) = &s.model {
+                    text(model, &row.model, WHITE, 0.45);
+                }
+                if let Some((fraction, label)) = &s.context {
+                    meter(&row.ctx_bar, *fraction);
+                    text(label, &row.ctx_label, WHITE, 0.55);
+                }
+            }
+            // Limites da conta: "5 h ▬▬▬ 37% · 2h10" e "Semana ▬▬ 12% · 3d4h".
+            for (u, slot) in c.usage.iter().zip(&l.usage) {
+                text(&u.name, &slot.name, WHITE, 0.55);
+                meter(&slot.bar, u.fraction);
+                text(&u.label, &slot.label, WHITE, 0.7);
             }
         }
 
@@ -645,9 +699,11 @@ mod tests {
                 status: "a editar".into(),
                 state: SessionState::Working,
                 focus: ControlId::indexed("focus", i as u32 + 1),
+                model: None,
+                context: None,
             })
             .collect();
-        vec![("claude", Widget::Claude(ClaudeWidget { sessions: lines })), ("media", media)]
+        vec![("claude", Widget::Claude(ClaudeWidget { sessions: lines, usage: Vec::new() })), ("media", media)]
     }
 
     fn center(r: &Rect) -> (f32, f32) {

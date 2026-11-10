@@ -176,6 +176,19 @@ pub struct SessionRow {
     pub status: Rect,
     /// "Abrir no VS Code" (ícone).
     pub button: Rect,
+    /// Modelo, à direita do nome (largura 0 se a coluna é estreita).
+    pub model: Rect,
+    /// Barra de contexto e a sua percentagem, à direita do estado (largura 0 se estreita).
+    pub ctx_bar: Rect,
+    pub ctx_label: Rect,
+}
+
+/// Uma barra de limite da conta: nome, barra e percentagem.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UsageSlot {
+    pub name: Rect,
+    pub bar: Rect,
+    pub label: Rect,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -191,6 +204,8 @@ pub struct PanelLayout {
     pub media: Option<MediaLayout>,
     pub claude_title: Option<Rect>,
     pub sessions: Vec<SessionRow>,
+    /// Barras dos limites da conta, lado a lado por baixo do título do Claude.
+    pub usage: Vec<UsageSlot>,
 }
 
 pub const PANEL_PAD: f32 = 24.0;
@@ -207,9 +222,18 @@ pub const BADGE: f32 = 22.0;
 const BUTTON: f32 = 28.0;
 const SESSION_H: f32 = 32.0;
 const OPEN: f32 = 26.0;
+/// Coluna do Claude a partir da qual há limites, modelo e barra de contexto.
+const WIDE_CLAUDE: f32 = 230.0;
+const USAGE_H: f32 = 14.0;
 
 /// Disposição do painel expandido. O mesmo resultado serve para desenhar e para os cliques.
+#[cfg(test)]
 pub fn panel_layout(columns: &[Column], sessions: usize) -> PanelLayout {
+    panel_layout_with(columns, sessions, 0)
+}
+
+/// Como `panel_layout`, com `usage` barras de limites da conta (0 a 2) por baixo do título do Claude.
+pub fn panel_layout_with(columns: &[Column], sessions: usize, usage: usize) -> PanelLayout {
     let s = EXPANDED;
     let left = -s.w / 2.0 + PANEL_PAD;
     let right = s.w / 2.0 - PANEL_PAD;
@@ -261,18 +285,53 @@ pub fn panel_layout(columns: &[Column], sessions: usize) -> PanelLayout {
 
     let claude = out_columns.iter().find(|(c, _)| *c == Column::Claude).map(|(_, r)| *r);
     let claude_title = claude.map(|r| Rect { h: 18.0, ..r });
-    let rows = claude.map_or(0, |r| ((r.h - 22.0) / SESSION_H).floor().max(0.0) as usize);
+    // Com a coluna larga cabem os limites da conta, o modelo e a barra de contexto; com três
+    // colunas (a do Claude estreita) fica só o essencial.
+    let wide = claude.is_some_and(|r| r.w >= WIDE_CLAUDE);
+    let usage_n = if wide { usage.min(2) } else { 0 };
+    let usage_h = if usage_n > 0 { USAGE_H + 4.0 } else { 0.0 };
+    let usage_slots = match claude {
+        Some(r) if usage_n > 0 => {
+            let seg_w = (r.w - 14.0) / 2.0;
+            (0..usage_n)
+                .map(|i| {
+                    let x = r.x + i as f32 * (seg_w + 14.0);
+                    let y = r.y + 20.0;
+                    let name = Rect { x, y, w: 46.0, h: USAGE_H };
+                    let label = Rect { x: x + seg_w - 62.0, y, w: 62.0, h: USAGE_H };
+                    let bar = Rect { x: name.right() + 4.0, y: y + (USAGE_H - 4.0) / 2.0, w: label.x - name.right() - 8.0, h: 4.0 };
+                    UsageSlot { name, bar, label }
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    };
+    let rows = claude.map_or(0, |r| ((r.h - 22.0 - usage_h) / SESSION_H).floor().max(0.0) as usize);
     let sessions = claude
         .map(|r| {
             (0..sessions.min(rows))
                 .map(|i| {
-                    let y = r.y + 22.0 + i as f32 * SESSION_H;
-                    let text_w = r.w - 14.0 - OPEN - 6.0;
+                    let y = r.y + 22.0 + usage_h + i as f32 * SESSION_H;
+                    let button = Rect { x: r.right() - OPEN, y: y + (SESSION_H - OPEN) / 2.0 - 2.0, w: OPEN, h: OPEN };
+                    let none = Rect { x: button.x, y, w: 0.0, h: 0.0 };
+                    let (model, ctx_bar, ctx_label) = if wide {
+                        let ctx_label = Rect { x: button.x - 6.0 - 32.0, y: y + 14.0, w: 32.0, h: 14.0 };
+                        let ctx_bar = Rect { x: ctx_label.x - 6.0 - 48.0, y: y + 14.0 + 5.0, w: 48.0, h: 4.0 };
+                        (Rect { x: button.x - 6.0 - 70.0, y, w: 70.0, h: 16.0 }, ctx_bar, ctx_label)
+                    } else {
+                        (none, none, none)
+                    };
+                    // O texto do estado acaba onde começa a barra de contexto (ou o botão).
+                    let status_end = if ctx_bar.w > 0.0 { ctx_bar.x - 8.0 } else { button.x - 6.0 };
+                    let label_end = if model.w > 0.0 { model.x - 6.0 } else { button.x - 6.0 };
                     SessionRow {
                         dot: Rect { x: r.x, y: y + 5.0, w: 6.0, h: 6.0 },
-                        label: Rect { x: r.x + 14.0, y, w: text_w, h: 16.0 },
-                        status: Rect { x: r.x + 14.0, y: y + 15.0, w: text_w, h: 14.0 },
-                        button: Rect { x: r.right() - OPEN, y: y + (SESSION_H - OPEN) / 2.0 - 2.0, w: OPEN, h: OPEN },
+                        label: Rect { x: r.x + 14.0, y, w: label_end - (r.x + 14.0), h: 16.0 },
+                        status: Rect { x: r.x + 14.0, y: y + 15.0, w: status_end - (r.x + 14.0), h: 14.0 },
+                        button,
+                        model,
+                        ctx_bar,
+                        ctx_label,
                     }
                 })
                 .collect()
@@ -287,6 +346,7 @@ pub fn panel_layout(columns: &[Column], sessions: usize) -> PanelLayout {
         dividers,
         media,
         claude_title,
+        usage: usage_slots,
         sessions,
     }
 }
@@ -512,5 +572,31 @@ mod tests {
         let max_x = p.iter().map(|p| p.0).max().unwrap();
         let max_y = p.iter().map(|p| p.1).max().unwrap();
         assert_eq!((min_x, max_x, max_y), (400 - 134, 400 + 134, 40)); // (95 + 12) * 1,25 = 133,75
+    }
+
+    #[test]
+    fn wide_claude_column_gets_model_context_and_limits() {
+        let l = panel_layout_with(&[Column::Media, Column::Claude], 2, 2);
+        assert_eq!(l.usage.len(), 2);
+        // As duas barras ficam lado a lado, dentro da coluna, por baixo do título.
+        let (_, col) = *l.columns.iter().find(|(c, _)| *c == Column::Claude).unwrap();
+        assert!(l.usage[0].label.right() <= l.usage[1].name.x && l.usage[1].label.right() <= col.right() + 0.01);
+        assert!(l.usage[0].name.y >= l.claude_title.unwrap().bottom() - 0.01);
+        for s in &l.sessions {
+            assert!(s.model.w > 0.0 && s.ctx_bar.w > 0.0 && s.ctx_label.w > 0.0);
+            assert!(s.label.right() <= s.model.x && s.status.right() <= s.ctx_bar.x, "o texto não passa para cima do resto");
+            assert!(s.ctx_label.right() <= s.button.x);
+            assert!(s.status.y >= l.usage[0].name.bottom(), "as sessões ficam por baixo dos limites");
+        }
+        assert_eq!(l.sessions.len(), 2, "cabem duas sessões com os limites");
+    }
+
+    #[test]
+    fn narrow_claude_column_keeps_only_the_essentials() {
+        let l = panel_layout_with(&[Column::Media, Column::Claude, Column::Rows], 1, 2);
+        assert!(l.usage.is_empty());
+        let s = &l.sessions[0];
+        assert!(s.model.w == 0.0 && s.ctx_bar.w == 0.0);
+        assert!(s.status.w > 0.0 && s.label.w > 0.0);
     }
 }

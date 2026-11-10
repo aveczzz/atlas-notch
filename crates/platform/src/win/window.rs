@@ -112,6 +112,8 @@ pub enum Input {
     ToggleHidden,
     /// Uma app entrou (`true`) ou saiu (`false`) de ecrã inteiro no monitor da island.
     Fullscreen(bool),
+    /// Abrir o `config.toml` (menu da bandeja ou do clique direito).
+    OpenConfig,
     /// Aviso do sistema (carregador, bateria, copiar).
     System(island_core::event::SystemEvent),
 }
@@ -303,6 +305,7 @@ pub fn register_hotkey(hwnd: HWND) {
 const HOTKEY_TOGGLE: i32 = 1;
 const MENU_HIDE: i32 = 1;
 const MENU_CLOSE: i32 = 2;
+const MENU_CONFIG: i32 = 3;
 
 /// Menu do clique direito no sítio do rato; devolve o comando escolhido (0 = nenhum).
 fn context_menu(hwnd: HWND) -> i32 {
@@ -311,7 +314,8 @@ fn context_menu(hwnd: HWND) -> i32 {
     // `TrackPopupMenu` pede para o menu fechar bem quando se clica fora.
     unsafe {
         let Ok(menu) = CreatePopupMenu() else { return 0 };
-        let _ = AppendMenuW(menu, MF_STRING, MENU_HIDE as usize, w!("Esconder	Ctrl+Alt+I"));
+        let _ = AppendMenuW(menu, MF_STRING, MENU_HIDE as usize, w!("Mostrar / esconder	Ctrl+Alt+I"));
+        let _ = AppendMenuW(menu, MF_STRING, MENU_CONFIG as usize, w!("Abrir configuração"));
         let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
         let _ = AppendMenuW(menu, MF_STRING, MENU_CLOSE as usize, w!("Fechar"));
         let mut pt = POINT::default();
@@ -321,6 +325,19 @@ fn context_menu(hwnd: HWND) -> i32 {
         let _ = PostMessageW(Some(hwnd), WM_NULL, WPARAM(0), LPARAM(0));
         let _ = DestroyMenu(menu);
         cmd.0
+    }
+}
+
+/// Abre o menu (clique direito na island ou no ícone da bandeja) e faz o que foi escolhido.
+fn run_menu(hwnd: HWND) {
+    match context_menu(hwnd) {
+        MENU_HIDE => push(Input::ToggleHidden),
+        MENU_CONFIG => push(Input::OpenConfig),
+        // SAFETY: `hwnd` é a janela desta thread, a receber a sua própria mensagem.
+        MENU_CLOSE => {
+            let _ = unsafe { DestroyWindow(hwnd) };
+        }
+        _ => {}
     }
 }
 
@@ -394,14 +411,18 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             LRESULT(0)
         }
         WM_RBUTTONUP => {
-            match context_menu(hwnd) {
-                MENU_HIDE => push(Input::ToggleHidden),
-                // SAFETY: `hwnd` é a janela desta thread, a receber a sua própria mensagem.
-                MENU_CLOSE => {
-                    let _ = unsafe { DestroyWindow(hwnd) };
-                }
-                _ => {}
+            run_menu(hwnd);
+            LRESULT(0)
+        }
+        super::notifyicon::WM_APP_TRAY => {
+            if super::notifyicon::on_message(wparam, lparam).is_some() {
+                run_menu(hwnd);
             }
+            LRESULT(0)
+        }
+        // O Explorador recriou a barra de tarefas (reiniciou): os ícones da bandeja perderam-se.
+        m if m != 0 && m == super::notifyicon::taskbar_created() => {
+            super::notifyicon::add(hwnd);
             LRESULT(0)
         }
         WM_HOTKEY if wparam.0 == HOTKEY_TOGGLE as usize => {
@@ -414,6 +435,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM)
             // SAFETY: o mesmo atalho registado em `register_hotkey`, na mesma janela.
             let _ = unsafe { UnregisterHotKey(Some(hwnd), HOTKEY_TOGGLE) };
             super::fullscreen::unregister(hwnd);
+            super::notifyicon::remove(hwnd);
             if let Some(regs) = SYSTEM_REGS.take() {
                 super::sysevents::unregister(hwnd, regs);
             }

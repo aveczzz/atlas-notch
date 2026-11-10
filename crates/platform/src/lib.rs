@@ -17,18 +17,18 @@
 //! Nenhuma fonte faz polling. A thread UI dorme até chegar um evento, expirar um
 //! deadline de um módulo, ou ser preciso o próximo frame de uma animação.
 
-/// Como o `eprintln!`, mas **nunca entra em pânico**. O `eprintln!` rebenta se o stderr for
-/// um pipe fechado (ex.: lançada por um script que já terminou) e, com `panic = "abort"`,
-/// fechava a island. Aqui um erro de escrita é ignorado: o log perde-se, a app continua.
+/// Como o `eprintln!`, mas **nunca entra em pânico** (o `eprintln!` rebenta com o stderr
+/// fechado e, com `panic = "abort"`, fechava a island) e também escreve em `island.log`.
 macro_rules! log {
-    ($($arg:tt)*) => {{
-        use std::io::Write as _;
-        let _ = writeln!(std::io::stderr(), $($arg)*);
-    }};
+    ($($arg:tt)*) => {
+        $crate::log::write(format_args!($($arg)*))
+    };
 }
 
 pub mod config;
 pub mod headless;
+pub mod log;
+pub mod usage;
 mod proxy;
 #[cfg(windows)]
 pub mod win;

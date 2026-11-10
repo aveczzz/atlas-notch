@@ -25,5 +25,5 @@ pub use event::Event;
 pub use module::{Module, ModuleId};
 pub use view::{
     Action, ActionKind, ClaudeWidget, Compact, ControlId, Icon, MediaWidget, MixerWidget, Priority, Row, SessionLine, SessionState,
-    Toast, TrayItem, TrayWidget, View, VolumeLine, Widget,
+    ContextUse, Toast, TrayItem, TrayWidget, UsageBar, View, VolumeLine, Widget,
 };
