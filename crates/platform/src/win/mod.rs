@@ -414,11 +414,6 @@ fn run_loop(engine: &mut Engine, dev_stdin: bool) -> io::Result<()> {
                         ui.tab = tab;
                         redraw = true;
                     }
-                    Some(Hit::Gear) => match cfg_dir.as_deref().map(config::ensure_file) {
-                        Some(Ok(path)) => settings::open_config(&path),
-                        Some(Err(e)) => log!("config: {e}"),
-                        None => {}
-                    },
                     Some(Hit::Tab(_) | Hit::Slider(..) | Hit::File { .. }) | None => {}
                 },
             }

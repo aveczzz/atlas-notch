@@ -74,7 +74,7 @@ O aspeto-alvo é o do NotchNook (macOS). As decisões, medidas e cores estão em
 capturas de referência em `docs/ui/`. Resumo:
 - notch preto colado ao topo, com cantos de cima côncavos;
 - sempre visível em repouso, cresce só o necessário nos eventos, painel completo no hover;
-- separadores "Nook" (música + Claude Code) e "Tray" (ficheiros).
+- separadores "Início" (música + Claude Code; no código `Tab::Nook`), "Som" e "Ficheiros" (a Tray; `Tab::Tray`).
 
 A island vive **sempre no ecrã interno do portátil** (deteção genérica em `win/window.rs`).
 
@@ -103,11 +103,11 @@ a barra da fase atual e a do projeto calculada com estes pesos.
    - Por verificar à mão: Win+Ctrl+Shift+B (device lost) e mudança de escala com a app aberta.
 3. **Painel** (peso 10). ✅
    - `Module::widget` + `Widget` tipado no `core`. O engine junta os blocos de todos os módulos e pede redraw quando o painel muda, mesmo que o vencedor do compacto não mude.
-   - `win/panel.rs`: separadores Nook/Tray, engrenagem e colunas música / Claude / apps externas. Os mesmos retângulos (`geometry::panel_layout`) servem o desenho e os cliques.
+   - `win/panel.rs`: separadores e colunas música / Claude / apps externas. Os mesmos retângulos (`geometry::panel_layout`) servem o desenho e os cliques.
    - Clique esquerdo → `Hit` → `Event::Action` → `Command` → `exec::run`. Por agora o `exec` só regista, com a fase de cada comando.
    - Animações limitadas a ~80 frames/s (o ecrã do portátil é de 144 Hz; com WARP era o dobro do CPU sem diferença visível).
    - Medido (release): arranque 70-120 ms, repouso e a pulsar 0 ciclos, animação 1,5% do CPU, working set 24,9 MB.
-   - Falta: a capa do álbum real e o ícone da app (fase 5); o separador Tray é só um aviso (fase 8); a engrenagem só regista (fase 9).
+   - Falta: a capa do álbum real e o ícone da app (fase 5); o separador Tray é só um aviso (fase 8).
    - Ideia se a RAM ou o CPU apertarem: redesenhar só a zona da forma (`BeginDraw` com retângulo).
 4. **IPC + hook** (peso 8). ✅
    - `win/ipc.rs`: o pipe é reservado antes da janela (`FILE_FLAG_FIRST_PIPE_INSTANCE`), por isso uma 2.ª island sai com código 1. A DACL só tem o utilizador atual. Uma thread por cliente, no máximo 8.
@@ -148,18 +148,18 @@ a barra da fase atual e a do projeto calculada com estes pesos.
    - A lista não sobrevive a reiniciar a app (fica para a config da fase 9).
 9. **Polimento** (peso 7).
    - ✅ Esconder em ecrã inteiro (`win/fullscreen.rs`): appbar `ABM_NEW` **sem** `ABM_SETPOS` (não reserva espaço) → o shell manda `ABN_FULLSCREENAPP`; a cada aviso vê-se se a janela em primeiro plano cobre o monitor da island (ignora o ambiente de trabalho). 0 polling. Testado com uma janela sem bordas a cobrir o ecrã: esconde e volta.
-   - ✅ Forma do notch afinada pela captura do NotchNook: orelhas 12, cantos de baixo 38 no painel (640×176).
-   - ✅ Config `%APPDATA%\dynamic-island\config.toml` (`platform/src/config.rs`, leitor próprio de `chave = true|false`, sem crate de TOML; gralhas dão aviso e valem os valores por omissão). Chaves: `arrancar_com_windows`, `esconder_em_ecra_inteiro`, `guardar_tray` (todas `true` por omissão). A engrenagem cria o ficheiro se faltar e abre-o (associação de `.toml`, senão Bloco de Notas). `FindFirstChangeNotificationW` na pasta entra no `MsgWait`: gravar aplica logo, 0 polling (medido: 0 ciclos em 60 s de repouso).
+   - ✅ Forma do notch afinada pela captura do NotchNook: orelhas 12, cantos de baixo 38 no painel (640×192; era 176 até os limites da conta pedirem folga).
+   - ✅ Config `%APPDATA%\dynamic-island\config.toml` (`platform/src/config.rs`, leitor próprio de `chave = true|false`, sem crate de TOML; gralhas dão aviso e valem os valores por omissão). Chaves: `arrancar_com_windows`, `esconder_em_ecra_inteiro`, `guardar_tray` (todas `true` por omissão). O menu do ícone da bandeja e do clique direito ("Abrir configuração") cria o ficheiro se faltar e abre-o (associação de `.toml`, senão Bloco de Notas). `FindFirstChangeNotificationW` na pasta entra no `MsgWait`: gravar aplica logo, 0 polling (medido: 0 ciclos em 60 s de repouso).
    - ✅ Arranque com o Windows (`win/settings.rs`): valor `DynamicIsland` em `HKCU\...\Run`, **só** para a cópia instalada em `%LOCALAPPDATA%\dynamic-island` (builds em `target\` nunca se registam). Testado: `false` no config tira o valor na hora, voltar a `true` repõe.
    - ✅ Menu no clique direito ("Esconder", "Fechar") e **Ctrl+Alt+I** global para esconder/mostrar (escondida não desenha; o estado continua a andar).
    - ✅ Tray entre arranques: `tray.txt` (um caminho por linha, escrita atómica com rename), gravado só quando a lista muda; ao arrancar repõe os que ainda existem. Não grava enquanto a lista reposta não chega (senão apagava-a). Testado: o ficheiro volta depois de reiniciar e o ✕ grava a lista vazia.
-   - Por verificar à mão: Win+D não deve esconder a island; a engrenagem abre o `config.toml` (no teste não apareceu janela nova: provavelmente abriu como separador no VS Code).
+   - Por verificar à mão: Win+D não deve esconder a island; o menu "Abrir configuração" abre o `config.toml`.
    - ✅ **Logs sem pânico**: macro `log!` em `platform/src/lib.rs` (`let _ = writeln!(stderr, ..)`) em vez de `eprintln!`, que entrava em pânico com o stderr num pipe fechado e, com `panic = "abort"`, fechava a app. O hook também. Testado: lançada por um processo que sai, a island continua viva depois de escrever logs.
 10. **Liquid glass e sistema** (em curso; plano em `~/.claude/plans/`).
    - ✅ **Vidro com desfoque real**. Testado num spike com a janela inativa (`NOACTIVATE`): `HostBackdropBrush`, `DWMWA_SYSTEMBACKDROP_TYPE` (acrílico), acrílico/blur por `SetWindowCompositionAttribute` e `DwmEnableBlurBehindWindow` **não desfocam** (cor plana ou só transparentes). Solução própria (`win/backdrop.rs`): ao sair do repouso (a pílula ainda no sítio) fotografa-se do ecrã a zona da janela (GDI `BitBlt`, uma vez), remenda-se a pílula preta repetindo a linha abaixo, desfoca-se uma vez (Gaussian Blur do D2D, 24 DIP, mais saturação a 170%, para um bitmap) e cada frame só pinta esse bitmap com uma tinta escura a 40% por cima, brilho branco a 10% na faixa de topo (24 DIP, recortada) e rebordo branco com gradiente (46% em cima, 6% em baixo). Em repouso a fotografia é deitada fora. Sem a fotografia (falha), cai para preto translúcido a 72%. Sem o azul. `vidro = false` volta a preto quase opaco (0,96). **Limitação**: a fotografia é estática enquanto a island está aberta (um vídeo por baixo não se mexe no vidro).
    - ✅ **Transição cruzada** entre conteúdos do notch (0,18 s, smoothstep): o conteúdo antigo desvanece, recortado à forma atual, enquanto o novo aparece; a forma já animava a largura por molas. Só conta se mudar o módulo, o texto ou a notificação (arrastar o volume, que só mexe na barra, não pisca).
    - Medido: repouso 0 ciclos, RAM privada ~10 MB; o vidro com desfoque custa ~60 ms de CPU a mais por abertura (captura e desfoque, uma vez); o resto da animação é o custo-base do WARP (~140 ms).
-   - ✅ Painel redesenhado: separadores em pílula segmentada que **abrem ao passar o rato** (espera de 120 ms, `ui.tab_at` entra no timeout do loop: 0 polling; sair da janela cancela), botões da música em círculos translúcidos, sliders do Som de 8 DIP sem botão.
+   - ✅ Painel redesenhado (separadores **Início / Som / Ficheiros**; limites da conta em duas linhas empilhadas com a barra comprida, e "Sem sessões" por baixo deles): separadores em pílula segmentada que **abrem ao passar o rato** (espera de 120 ms, `ui.tab_at` entra no timeout do loop: 0 polling; sair da janela cancela), botões da música em círculos translúcidos, sliders do Som de 8 DIP sem botão.
    - ✅ **Avisos do sistema** (`Event::System`, módulo `modules/src/system.rs`, `Priority::Attention`, 1,5 s para teclas e copiar, 2,5 s para bateria e dispositivo; um novo substitui o anterior; chave `avisos_do_sistema` no config):
      - Caps/Num/Scroll Lock: `win/keys.rs`, thread própria com janela `HWND_MESSAGE` e raw input `RIDEV_INPUTSINK` (nunca um hook). Estado lido uma vez no arranque e invertido a cada premir, sem repetições. Medido: 0,4 ms de CPU por tecla, na thread das teclas; a de UI não acorda.
      - Carregador e bateria fraca (20% e 10%, uma vez cada, só sem carregador): `win/sysevents.rs`, `RegisterPowerSettingNotification` → `WM_POWERBROADCAST`; a notificação inicial que o Windows manda ao registar não conta como mudança; desktops sem bateria não avisam.

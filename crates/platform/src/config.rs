@@ -28,7 +28,7 @@ impl Default for Config {
     }
 }
 
-/// O ficheiro que a engrenagem abre quando ainda não existe.
+/// O ficheiro que o menu "Abrir configuração" cria e abre quando ainda não existe.
 pub const DEFAULT_FILE: &str = "\
 # Dynamic Island: configuração.
 # Grava o ficheiro e a island aplica as mudanças logo, sem reiniciar.

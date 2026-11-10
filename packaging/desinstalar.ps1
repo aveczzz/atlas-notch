@@ -18,7 +18,16 @@ param(
     [switch]$NaoParar
 )
 $ErrorActionPreference = "Stop"
-if (-not $NaoParar) { Get-Process island -ErrorAction SilentlyContinue | Stop-Process -Force }
+# Fecha a island instalada em $Destino e ESPERA que o Windows largue o ficheiro (o Stop-Process
+# volta antes de o processo acabar, e o Copy-Item falhava com "esta a ser utilizado").
+function Parar-Island([string]$pasta) {
+    $exe = Join-Path $pasta "island.exe"
+    $vivos = @(Get-Process island -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
+    foreach ($p in $vivos) { try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch { } }
+    foreach ($p in $vivos) { try { [void]$p.WaitForExit(10000) } catch { } }
+}
+
+if (-not $NaoParar) { Parar-Island $Destino }
 
 # Claude Code: tira os nossos hooks e a linha de estado (precisa do island-hook.exe ainda instalado).
 $hook = Join-Path $Destino "island-hook.exe"

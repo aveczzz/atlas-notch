@@ -1,4 +1,4 @@
-//! Painel expandido: separadores Nook/Som/Tray, engrenagem e os blocos dos módulos.
+//! Painel expandido: separadores Início/Som/Ficheiros (`Tab::{Nook, Som, Tray}`), engrenagem e os blocos dos módulos.
 //!
 //! A disposição vem de `geometry::panel_layout`; os mesmos retângulos servem o desenho
 //! e os cliques (`hit_test`), para nunca divergirem. Os textos ficam em cache e só se
@@ -25,7 +25,6 @@ const GLYPH_PREV: char = '\u{E892}';
 const GLYPH_NEXT: char = '\u{E893}';
 const GLYPH_PLAY: char = '\u{E768}';
 const GLYPH_PAUSE: char = '\u{E769}';
-const GLYPH_GEAR: char = '\u{E713}';
 const GLYPH_MUSIC: char = '\u{E8D6}';
 /// "Abrir noutra janela": o botão de abrir a sessão no VS Code.
 const GLYPH_OPEN: char = '\u{E8A7}';
@@ -43,7 +42,7 @@ pub enum Tab {
 
 impl Tab {
     const ALL: [Tab; 3] = [Tab::Nook, Tab::Som, Tab::Tray];
-    const LABELS: [&str; 3] = ["Nook", "Som", "Tray"];
+    const LABELS: [&str; 3] = ["Início", "Som", "Ficheiros"];
 }
 
 /// O que está debaixo de um clique.
@@ -58,7 +57,6 @@ pub enum Hit {
     /// movido, sai da lista (`remove`).
     File { module: ModuleId, open: ControlId, remove: ControlId, path: String },
     Tab(Tab),
-    Gear,
 }
 
 /// Imagens já na GPU para o painel (pincel de bitmap e tamanho em pixeis).
@@ -99,7 +97,8 @@ struct ClaudeContent {
     module: ModuleId,
     title: IDWriteTextLayout,
     /// "Sem sessões", quando não há nenhuma.
-    empty: Option<IDWriteTextLayout>,
+    /// O texto e onde se desenha (por baixo dos limites da conta, se os há).
+    empty: Option<(IDWriteTextLayout, Rect)>,
     sessions: Vec<SessionContent>,
     usage: Vec<UsageContent>,
 }
@@ -118,7 +117,6 @@ pub struct PanelContent {
     tab: Tab,
     layout: Option<PanelLayout>,
     tabs: Vec<IDWriteTextLayout>,
-    gear: Option<IDWriteTextLayout>,
     placeholder: Option<IDWriteTextLayout>,
     media: Option<MediaContent>,
     claude: Option<ClaudeContent>,
@@ -171,7 +169,6 @@ impl PanelContent {
         let fit = |text: &str, format: &IDWriteTextFormat, r: &Rect| t.layout(text, format, r.w, r.h);
 
         let tabs = Tab::LABELS.iter().zip(&l.tabs).map(|(label, r)| fit(label, &t.tab, r)).collect::<Result<_>>()?;
-        let gear = Some(fit(&GLYPH_GEAR.to_string(), &t.icon, &l.gear)?);
         let placeholder = Some(fit("Arrasta ficheiros para aqui", &t.caption_center, &l.content)?);
 
         let media = match (media, &l.media) {
@@ -223,8 +220,10 @@ impl PanelContent {
                     });
                 }
                 let empty = if w.sessions.is_empty() {
-                    let r = Rect { y: title_rect.bottom() + 4.0, h: 26.0, ..title_rect };
-                    Some(fit("Sem sessões", &t.text, &r)?)
+                    // Por baixo dos limites da conta, se os há (senão ficava por cima deles).
+                    let y = l.usage.last().map_or(title_rect.bottom() + 4.0, |u| u.name.bottom() + 8.0);
+                    let r = Rect { y, h: 20.0, ..title_rect };
+                    Some((fit("Sem sessões", &t.text, &r)?, r))
                 } else {
                     None
                 };
@@ -256,7 +255,6 @@ impl PanelContent {
             tab,
             layout: Some(l),
             tabs,
-            gear,
             placeholder,
             media,
             claude,
@@ -266,14 +264,11 @@ impl PanelContent {
         })
     }
 
-    /// Controlo, separador ou engrenagem em (`x`, `y`), em DIPs na origem do contorno.
+    /// Controlo ou separador em (`x`, `y`), em DIPs na origem do contorno.
     pub fn hit_test(&self, x: f32, y: f32) -> Option<Hit> {
         let l = self.layout.as_ref()?;
         if let Some(i) = l.tabs.iter().position(|r| r.contains(x, y)) {
             return Some(Hit::Tab(Tab::ALL[i]));
-        }
-        if l.gear.contains(x, y) {
-            return Some(Hit::Gear);
         }
         match self.tab {
             Tab::Tray => return self.tray.as_ref().and_then(|t| t.hit_test(x, y)),
@@ -352,9 +347,6 @@ impl PanelContent {
             }
             text(layout, r, WHITE, if i == selected { 1.0 } else { 0.55 });
         }
-        if let Some(g) = &self.gear {
-            text(g, &l.gear, WHITE, 0.55);
-        }
 
         match self.tab {
             Tab::Tray => {
@@ -425,8 +417,8 @@ impl PanelContent {
         if let Some(c) = &self.claude {
             if let Some(title_rect) = &l.claude_title {
                 text(&c.title, title_rect, WHITE, 0.4);
-                if let Some(e) = &c.empty {
-                    text(e, &Rect { y: title_rect.bottom() + 4.0, h: 26.0, ..*title_rect }, WHITE, 0.4);
+                if let Some((e, at)) = &c.empty {
+                    text(e, at, WHITE, 0.4);
                 }
             }
             for (s, row) in c.sessions.iter().zip(&l.sessions) {
@@ -725,8 +717,6 @@ mod tests {
         assert_eq!(p.hit_test(x, y), Some(Hit::Tab(Tab::Som)));
         let (x, y) = center(&l.tabs[2]);
         assert_eq!(p.hit_test(x, y), Some(Hit::Tab(Tab::Tray)));
-        let (x, y) = center(&l.gear);
-        assert_eq!(p.hit_test(x, y), Some(Hit::Gear));
         let (x, y) = center(&l.media.as_ref().unwrap().art);
         assert_eq!(p.hit_test(x, y), None, "a capa não é um botão");
     }
@@ -806,5 +796,25 @@ mod tests {
         assert_eq!(p.hit_test(x, y), None);
         let (x, y) = center(&l.tabs[0]);
         assert_eq!(p.hit_test(x, y), Some(Hit::Tab(Tab::Nook)));
+    }
+
+    #[test]
+    fn no_sessions_message_sits_below_the_account_limits() {
+        let t = TextKit::new().unwrap();
+        let mut p = PanelContent::default();
+        let bar = |name: &str, fraction: f32| island_core::UsageBar { name: name.into(), fraction, label: "45% · 3h28".into() };
+        let claude = Widget::Claude(ClaudeWidget { sessions: Vec::new(), usage: vec![bar("5 h", 0.45), bar("Semana", 0.57)] });
+        p.update(&t, &[("claude", claude)], Tab::Nook).unwrap();
+        let l = p.layout.clone().unwrap();
+        let (_, at) = p.claude.as_ref().unwrap().empty.as_ref().expect("sem sessões mostra o aviso");
+        assert_eq!(l.usage.len(), 2);
+        assert!(at.y >= l.usage[1].name.bottom(), "o aviso não pode sobrepor-se aos limites: {at:?} vs {:?}", l.usage[1].name);
+        // Sem limites, o aviso fica logo abaixo do título (como antes).
+        let mut p = PanelContent::default();
+        let sem = Widget::Claude(ClaudeWidget { sessions: Vec::new(), usage: Vec::new() });
+        p.update(&t, &[("claude", sem)], Tab::Nook).unwrap();
+        let l = p.layout.clone().unwrap();
+        let (_, at) = p.claude.as_ref().unwrap().empty.as_ref().unwrap();
+        assert!((at.y - (l.claude_title.unwrap().bottom() + 4.0)).abs() < 0.01);
     }
 }

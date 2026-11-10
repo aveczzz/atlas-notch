@@ -24,7 +24,7 @@ pub const TOAST: Size = Size { w: 380.0, h: 72.0, r: 26.0 };
 pub const TOAST_ICON: f32 = 40.0;
 pub const TOAST_PAD: f32 = 18.0;
 /// Painel completo (hover).
-pub const EXPANDED: Size = Size { w: 640.0, h: 176.0, r: 38.0 };
+pub const EXPANDED: Size = Size { w: 640.0, h: 192.0, r: 38.0 };
 /// Margem lateral do conteúdo compacto.
 pub const PAD: f32 = 16.0;
 /// Largura do brilho azul à volta da forma (fica por fora: a região da janela alarga isto).
@@ -195,7 +195,6 @@ pub struct UsageSlot {
 pub struct PanelLayout {
     /// Nook, Som, Tray.
     pub tabs: [Rect; 3],
-    pub gear: Rect,
     /// Área de conteúdo abaixo do cabeçalho (também usada pelo separador Tray).
     pub content: Rect,
     pub columns: Vec<(Column, Rect)>,
@@ -211,7 +210,7 @@ pub struct PanelLayout {
 pub const PANEL_PAD: f32 = 24.0;
 const HEADER_Y: f32 = 10.0;
 const HEADER_H: f32 = 26.0;
-const TAB_W: f32 = 64.0;
+const TAB_W: f32 = 74.0;
 const COLUMN_GAP: f32 = 28.0;
 /// Larguras fixas quando há mais de uma coluna; o Claude fica com o resto.
 const MEDIA_W: f32 = 260.0;
@@ -225,6 +224,10 @@ const OPEN: f32 = 26.0;
 /// Coluna do Claude a partir da qual há limites, modelo e barra de contexto.
 const WIDE_CLAUDE: f32 = 230.0;
 const USAGE_H: f32 = 14.0;
+/// Distância entre as linhas dos limites da conta.
+const USAGE_PITCH: f32 = 18.0;
+/// Intervalo entre a última linha dos limites e a primeira sessão.
+const USAGE_GAP: f32 = 10.0;
 
 /// Disposição do painel expandido. O mesmo resultado serve para desenhar e para os cliques.
 #[cfg(test)]
@@ -289,34 +292,34 @@ pub fn panel_layout_with(columns: &[Column], sessions: usize, usage: usize) -> P
     // colunas (a do Claude estreita) fica só o essencial.
     let wide = claude.is_some_and(|r| r.w >= WIDE_CLAUDE);
     let usage_n = if wide { usage.min(2) } else { 0 };
-    let usage_h = if usage_n > 0 { USAGE_H + 4.0 } else { 0.0 };
+    // Os limites em linhas empilhadas: nome, barra a ocupar o que sobra e o texto à direita
+    // ("45% · 3h31"), com folga entre linhas; depois um intervalo antes das sessões.
+    let usage_end = 20.0 + usage_n as f32 * USAGE_PITCH;
+    let sessions_y0 = if usage_n > 0 { usage_end + USAGE_GAP } else { 22.0 };
     let usage_slots = match claude {
-        Some(r) if usage_n > 0 => {
-            let seg_w = (r.w - 14.0) / 2.0;
-            (0..usage_n)
-                .map(|i| {
-                    let x = r.x + i as f32 * (seg_w + 14.0);
-                    let y = r.y + 20.0;
-                    let name = Rect { x, y, w: 46.0, h: USAGE_H };
-                    let label = Rect { x: x + seg_w - 62.0, y, w: 62.0, h: USAGE_H };
-                    let bar = Rect { x: name.right() + 4.0, y: y + (USAGE_H - 4.0) / 2.0, w: label.x - name.right() - 8.0, h: 4.0 };
-                    UsageSlot { name, bar, label }
-                })
-                .collect()
-        }
+        Some(r) if usage_n > 0 => (0..usage_n)
+            .map(|i| {
+                let y = r.y + 20.0 + i as f32 * USAGE_PITCH;
+                let name = Rect { x: r.x, y, w: 46.0, h: USAGE_H };
+                let label = Rect { x: r.right() - 78.0, y, w: 78.0, h: USAGE_H };
+                let bar = Rect { x: name.right() + 4.0, y: y + (USAGE_H - 4.0) / 2.0, w: label.x - name.right() - 12.0, h: 4.0 };
+                UsageSlot { name, bar, label }
+            })
+            .collect(),
         _ => Vec::new(),
     };
-    let rows = claude.map_or(0, |r| ((r.h - 22.0 - usage_h) / SESSION_H).floor().max(0.0) as usize);
+    let (pitch, status_dy) = (SESSION_H, 15.0);
+    let rows = claude.map_or(0, |r| ((r.h - sessions_y0) / pitch + 0.01).floor().max(0.0) as usize);
     let sessions = claude
         .map(|r| {
             (0..sessions.min(rows))
                 .map(|i| {
-                    let y = r.y + 22.0 + usage_h + i as f32 * SESSION_H;
-                    let button = Rect { x: r.right() - OPEN, y: y + (SESSION_H - OPEN) / 2.0 - 2.0, w: OPEN, h: OPEN };
+                    let y = r.y + sessions_y0 + i as f32 * pitch;
+                    let button = Rect { x: r.right() - OPEN, y: y + (pitch - OPEN) / 2.0 - 2.0, w: OPEN, h: OPEN };
                     let none = Rect { x: button.x, y, w: 0.0, h: 0.0 };
                     let (model, ctx_bar, ctx_label) = if wide {
-                        let ctx_label = Rect { x: button.x - 6.0 - 32.0, y: y + 14.0, w: 32.0, h: 14.0 };
-                        let ctx_bar = Rect { x: ctx_label.x - 6.0 - 48.0, y: y + 14.0 + 5.0, w: 48.0, h: 4.0 };
+                        let ctx_label = Rect { x: button.x - 6.0 - 32.0, y: y + status_dy - 1.0, w: 32.0, h: 14.0 };
+                        let ctx_bar = Rect { x: ctx_label.x - 6.0 - 48.0, y: y + status_dy + 4.0, w: 48.0, h: 4.0 };
                         (Rect { x: button.x - 6.0 - 70.0, y, w: 70.0, h: 16.0 }, ctx_bar, ctx_label)
                     } else {
                         (none, none, none)
@@ -327,7 +330,7 @@ pub fn panel_layout_with(columns: &[Column], sessions: usize, usage: usize) -> P
                     SessionRow {
                         dot: Rect { x: r.x, y: y + 5.0, w: 6.0, h: 6.0 },
                         label: Rect { x: r.x + 14.0, y, w: label_end - (r.x + 14.0), h: 16.0 },
-                        status: Rect { x: r.x + 14.0, y: y + 15.0, w: status_end - (r.x + 14.0), h: 14.0 },
+                        status: Rect { x: r.x + 14.0, y: y + status_dy, w: status_end - (r.x + 14.0), h: 14.0 },
                         button,
                         model,
                         ctx_bar,
@@ -340,7 +343,6 @@ pub fn panel_layout_with(columns: &[Column], sessions: usize, usage: usize) -> P
 
     PanelLayout {
         tabs: [tab(0.0), tab(1.0), tab(2.0)],
-        gear: Rect { x: right - HEADER_H, y: HEADER_Y, w: HEADER_H, h: HEADER_H },
         content,
         columns: out_columns,
         dividers,
@@ -477,7 +479,7 @@ mod tests {
     fn panel_fits_inside_the_expanded_shape() {
         let l = panel_layout(&[Column::Media, Column::Claude], 9);
         let body = Rect { x: -EXPANDED.w / 2.0, y: 0.0, w: EXPANDED.w, h: EXPANDED.h };
-        assert!(l.tabs.iter().chain([&l.gear]).all(|r| inside(r, &body)));
+        assert!(l.tabs.iter().all(|r| inside(r, &body)));
         assert!(l.columns.iter().all(|(_, r)| inside(r, &l.content)));
         let m = l.media.as_ref().unwrap();
         let media_col = l.columns[0].1;
@@ -578,17 +580,30 @@ mod tests {
     fn wide_claude_column_gets_model_context_and_limits() {
         let l = panel_layout_with(&[Column::Media, Column::Claude], 2, 2);
         assert_eq!(l.usage.len(), 2);
-        // As duas barras ficam lado a lado, dentro da coluna, por baixo do título.
         let (_, col) = *l.columns.iter().find(|(c, _)| *c == Column::Claude).unwrap();
-        assert!(l.usage[0].label.right() <= l.usage[1].name.x && l.usage[1].label.right() <= col.right() + 0.01);
+        // Os limites ficam empilhados por baixo do título, alinhados, com a barra entre o nome e o texto.
         assert!(l.usage[0].name.y >= l.claude_title.unwrap().bottom() - 0.01);
+        assert!(l.usage[1].name.y >= l.usage[0].name.bottom() - 0.01, "a 2.ª linha fica por baixo da 1.ª");
+        for u in &l.usage {
+            assert!(u.name.right() <= u.bar.x && u.bar.right() <= u.label.x, "nome, barra e texto não se sobrepõem");
+            assert!(u.label.right() <= col.right() + 0.01);
+            assert!(u.bar.w > 100.0, "a barra é comprida (era minúscula quando partilhava a linha)");
+        }
+        assert_eq!(l.usage[0].bar.x, l.usage[1].bar.x, "as barras alinham");
         for s in &l.sessions {
             assert!(s.model.w > 0.0 && s.ctx_bar.w > 0.0 && s.ctx_label.w > 0.0);
             assert!(s.label.right() <= s.model.x && s.status.right() <= s.ctx_bar.x, "o texto não passa para cima do resto");
             assert!(s.ctx_label.right() <= s.button.x);
-            assert!(s.status.y >= l.usage[0].name.bottom(), "as sessões ficam por baixo dos limites");
+            assert!(s.status.y >= l.usage[1].name.bottom(), "as sessões ficam por baixo dos limites");
         }
         assert_eq!(l.sessions.len(), 2, "cabem duas sessões com os limites");
+        // Folga a sério: entre as linhas dos limites, entre os limites e a 1.ª sessão, e entre sessões.
+        assert!(l.usage[1].name.y - l.usage[0].name.bottom() >= 3.0, "linhas dos limites coladas");
+        assert!(l.sessions[0].label.y - l.usage[1].name.bottom() >= 8.0, "a 1.ª sessão cola aos limites");
+        assert!(l.sessions[1].label.y - l.sessions[0].status.bottom() >= 0.0, "as sessões coladas");
+        // E a última sessão cabe dentro do painel.
+        let last = l.sessions.last().unwrap();
+        assert!(last.status.bottom() <= l.content.bottom() + 0.5, "{:?} vs {:?}", last.status, l.content);
     }
 
     #[test]

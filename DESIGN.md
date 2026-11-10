@@ -28,7 +28,7 @@ Decisões do utilizador (2026-11-07):
   |---|---|---|---|
   | Repouso | 190 × 32 | 14 | ícone à esquerda, indicador/texto curto à direita |
   | Evento | até ~360 × 40, largura pelo texto | 20 | ex.: `activesync: precisa de ti`, HUD de volume |
-  | Expandido (hover) | 640 × 176 | 38 | painel com separadores |
+  | Expandido (hover) | 640 × 192 | 38 | painel com separadores |
 
 - **Borda azul suave** (`#3AA0FF`) para distinguir a ilha do resto do ecrã (pedido do utilizador, 2026-11-08):
   - linha de 1 DIP a 45% (2026-11-10: o utilizador pediu "menos forte, mais clean");
@@ -42,7 +42,6 @@ Decisões do utilizador (2026-11-07):
 
 Cabeçalho (~28 DIP):
 - À esquerda, os separadores **Nook**, **Som** e **Tray**. O selecionado é uma cápsula `rgba(255,255,255,.12)` com ícone + texto.
-- À direita, a engrenagem: abre a configuração (fase 9).
 
 Separador **Nook**: blocos lado a lado, separados por divisórias verticais finas `rgba(255,255,255,.08)`.
 

@@ -476,13 +476,13 @@ mod tests {
     #[test]
     fn centered_and_glued_to_the_top() {
         let r = layout(FULL_HD, 96);
-        assert_eq!(r, PxRect { x: (1920 - 696) / 2, y: 0, w: 696, h: 192 });
+        assert_eq!(r, PxRect { x: (1920 - 696) / 2, y: 0, w: 696, h: 208 });
     }
 
     #[test]
     fn scales_with_dpi() {
         let r = layout(FULL_HD, 120); // 125%
-        assert_eq!(r, PxRect { x: (1920 - 870) / 2, y: 0, w: 870, h: 240 });
+        assert_eq!(r, PxRect { x: (1920 - 870) / 2, y: 0, w: 870, h: 260 });
     }
 
     #[test]

@@ -47,10 +47,28 @@ if (-not $origem) {
     throw "Nao encontro island.exe e island-hook.exe. Corre 'cargo build --release' ou usa -Binarios <pasta>."
 }
 
+# Fecha a island instalada em $Destino e ESPERA que o Windows largue o ficheiro (o Stop-Process
+# volta antes de o processo acabar, e o Copy-Item falhava com "esta a ser utilizado").
+function Parar-Island([string]$pasta) {
+    $exe = Join-Path $pasta "island.exe"
+    $vivos = @(Get-Process island -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })
+    foreach ($p in $vivos) { try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch { } }
+    foreach ($p in $vivos) { try { [void]$p.WaitForExit(10000) } catch { } }
+}
+
 # 2. Copiar. A island tem de estar fechada para o .exe poder ser substituido.
-if (-not $NaoParar) { Get-Process island -ErrorAction SilentlyContinue | Stop-Process -Force }
+if (-not $NaoParar) { Parar-Island $Destino }
 New-Item -ItemType Directory -Force $Destino | Out-Null
-Copy-Item (Join-Path $origem "island.exe"), (Join-Path $origem "island-hook.exe") $Destino -Force
+# O ficheiro pode demorar uns instantes a ficar livre (antivirus, o Windows a largar o handle).
+for ($tentativa = 1; $tentativa -le 8; $tentativa++) {
+    try {
+        Copy-Item (Join-Path $origem "island.exe"), (Join-Path $origem "island-hook.exe") $Destino -Force -ErrorAction Stop
+        break
+    } catch {
+        if ($tentativa -eq 8) { throw "Nao consegui copiar para $Destino (ficheiro em uso?): $($_.Exception.Message). Fecha a island (icone na bandeja > Fechar) e volta a correr." }
+        Start-Sleep -Milliseconds 500
+    }
+}
 # O script de teste antigo da linha de estado ja nao existe: o island-hook faz esse trabalho.
 Remove-Item (Join-Path $Destino "island-statusline.ps1") -ErrorAction SilentlyContinue
 $hook = Join-Path $Destino "island-hook.exe"
