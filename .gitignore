@@ -1,0 +1,6 @@
+/target
+*.msix
+*.pfx
+
+# Capturas de referência de uma app de terceiros (NotchNook): ficam só no PC.
+/docs/ui/

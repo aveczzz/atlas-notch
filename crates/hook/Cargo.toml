@@ -1,0 +1,13 @@
+[package]
+name = "island-hook"
+description = "Executável chamado pelos hooks do Claude Code. Lê o JSON do hook no stdin e envia-o para a island."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+island-proto.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

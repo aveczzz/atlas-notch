@@ -1,0 +1,43 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/proto",
+    "crates/core",
+    "crates/modules",
+    "crates/platform",
+    "crates/app",
+    "crates/hook",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+island-proto = { path = "crates/proto" }
+island-core = { path = "crates/core" }
+island-modules = { path = "crates/modules" }
+island-platform = { path = "crates/platform" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+
+# Binário pequeno e rápido. A app é sempre a mesma coisa a correr o dia todo,
+# por isso vale a pena pagar o tempo de compilação extra do LTO.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# O hook é invocado pelo Claude Code em cada evento: otimizar para arranque rápido.
+[profile.release.package.island-hook]
+opt-level = "s"

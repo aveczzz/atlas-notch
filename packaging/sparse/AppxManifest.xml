@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sparse package: dá identidade de pacote ao island.exe sem o converter numa app MSIX.
+  Serve as notificações (UserNotificationListener com o evento NotificationChanged, em vez de
+  consultar a lista a cada 2 s).
+
+  Assinado com um certificado de teste (CN=DynamicIsland) que `packaging/instalar.ps1` cria e põe
+  como confiável (precisa de administrador, uma vez). O caminho sem certificado
+  (`-AllowUnsigned` com o OID 2.25.311729368913984317654407730594956997722) não serve: o Windows
+  recusa esse Publisher no <msix> do manifest embutido no .exe (erro side-by-side).
+
+  O island.exe tem embutido um manifest com <msix> a referir este Name/Publisher
+  (`crates/app/island.exe.manifest`); os dois têm de coincidir.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 uap10 rescap">
+
+  <Identity Name="DynamicIsland" Publisher="CN=DynamicIsland"
+            Version="0.1.0.0" ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Dynamic Island</DisplayName>
+    <PublisherDisplayName>Dynamic Island</PublisherDisplayName>
+    <Logo>logo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.19041.0" MaxVersionTested="10.0.26200.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="pt-PT" />
+  </Resources>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <rescap:Capability Name="unvirtualizedResources" />
+    <uap3:Capability Name="userNotificationListener" />
+  </Capabilities>
+
+  <Applications>
+    <Application Id="Island" Executable="island.exe"
+                 uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+      <uap:VisualElements DisplayName="Dynamic Island" Description="Dynamic Island para Windows"
+                          Square150x150Logo="logo.png" Square44x44Logo="logo.png"
+                          BackgroundColor="transparent" AppListEntry="none" />
+    </Application>
+  </Applications>
+</Package>

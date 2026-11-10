@@ -1,0 +1,18 @@
+[package]
+name = "island"
+description = "Dynamic Island para Windows."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+island-core.workspace = true
+island-modules.workspace = true
+island-platform.workspace = true
+
+[lints]
+workspace = true
+
+# Compila island.rc (o manifest) com o rc.exe do Windows SDK.
+[build-dependencies]
+embed-resource = "3"

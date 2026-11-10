@@ -1,0 +1,82 @@
+[package]
+name = "island-platform"
+description = "Tudo o que toca no sistema operativo: janela, renderer, fontes de eventos, IPC."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+island-core.workspace = true
+island-proto.workspace = true
+
+# Só no Windows. Acrescentar features à medida que cada parte é implementada:
+# cada feature a mais aumenta o tempo de compilação, não o binário.
+[target.'cfg(windows)'.dependencies]
+# Matrix3x2/Vector2 do Direct2D (já é dependência do `windows`).
+windows-numerics = "0.3"
+# IAsyncOperation (WinRT), para a fonte de media.
+windows-future = "0.3"
+# `#[implement]` (callbacks COM do áudio) gera código que refere `windows_core`.
+windows-core = "0.62"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.62"
+features = [
+    # Janela e message loop
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dwm",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_System_Registry",
+    "Win32_System_Power",
+    "Win32_System_DataExchange",
+    "Win32_UI_Input",
+    "Win32_Devices_FunctionDiscovery",
+    # Encontrar o executável de uma app pelo nome (ícone da música)
+    "Win32_System_Diagnostics_ToolHelp",
+    # Encontrar o ecrã interno do portátil (QueryDisplayConfig)
+    "Win32_Devices_Display",
+    # Renderer: D3D11 -> DXGI -> Direct2D -> DirectComposition, texto com DirectWrite
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Direct2D",
+    "Win32_Graphics_Direct2D_Common",
+    "Win32_Graphics_DirectComposition",
+    "Win32_Graphics_DirectWrite",
+    "Win32_Graphics_Imaging",
+    # Áudio (Core Audio) e COM
+    "Win32_Media_Audio",
+    "Win32_Media_Audio_Endpoints",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    # Arrastar e largar ficheiros (Tray)
+    "Win32_System_Ole",
+    "Win32_System_SystemServices",
+    "Win32_System_Variant",
+    "Win32_UI_Shell_PropertiesSystem",
+    # Named pipe
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_IO",
+    # Ecrã inteiro / estado do utilizador
+    "Win32_UI_Shell",
+    # WinRT: media (GSMTC) e notificações
+    "Foundation",
+    "ApplicationModel",
+    "Foundation_Collections",
+    "Media_Control",
+    "Storage_Streams",
+    "UI_Notifications",
+    "UI_Notifications_Management",
+]
+
+[lints]
+workspace = true

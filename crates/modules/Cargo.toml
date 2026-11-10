@@ -1,0 +1,13 @@
+[package]
+name = "island-modules"
+description = "Módulos da island (media, misturador, Claude, notificações, externo). Lógica pura."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+island-core.workspace = true
+island-proto.workspace = true
+
+[lints]
+workspace = true
