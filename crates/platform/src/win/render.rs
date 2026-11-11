@@ -393,8 +393,13 @@ impl Renderer {
         let target = geometry::target(mode);
         let mut region = None;
         if target != self.target {
-            // Ao sair do repouso, fotografar o que está atrás (a pílula ainda está no sítio).
-            if self.glass && target != REST && self.at_rest() {
+            // Fotografar o que está atrás (a forma atual ainda está no sítio e é tapada na
+            // fotografia): sempre que o painel abre (fotografia fresca, mesmo vindo de um evento
+            // em curso, como uma sessão do Claude a trabalhar) e sempre que a fotografia falte
+            // (perdeu-se com a troca de ecrã ou a recriação da GPU). Antes só se tirava a sair do
+            // repouso, e com um evento à mostra o painel abria sem desfoque.
+            let missing = self.gpu.as_ref().is_none_or(|g| g.backdrop.is_none());
+            if self.glass && target != REST && (target == geometry::EXPANDED || missing) {
                 self.snapshot_backdrop();
             }
             // A crescer, a região já tem o tamanho novo; a encolher, mantém o atual até ao fim.
@@ -442,17 +447,20 @@ impl Renderer {
         FrameOut { animating, region, retry }
     }
 
-    /// A forma está em repouso (a pílula preta no sítio)?
-    fn at_rest(&self) -> bool {
-        (self.shape.width.value - REST.w).abs() < 6.0 && (self.shape.height.value - REST.h).abs() < 4.0
-    }
-
     /// Fotografa e desfoca o ecrã atrás da janela (ver `backdrop`). Se falhar, o vidro fica
     /// só translúcido, sem desfoque.
     fn snapshot_backdrop(&mut self) {
+        // A forma que está agora no ecrã (com a margem do rebordo), para ser tapada na fotografia.
+        let s = self.size();
+        let cover = (s.w / 2.0 + EAR + geometry::GLOW, s.h + geometry::GLOW);
+        if self.gpu.is_none() {
+            // A cadeia gráfica está a ser recriada: o próximo frame cria-a e volta a tentar
+            // (a fotografia está em falta, por isso a próxima mudança de forma tira-a).
+            log!("vidro: sem GPU no momento da fotografia (a recriar)");
+        }
         let Some(gpu) = &mut self.gpu else { return };
         // SAFETY: contexto de recursos desta cadeia, na thread que o criou.
-        let made = backdrop::capture(&gpu.res, self.placement.window, self.placement.dpi)
+        let made = backdrop::capture(&gpu.res, self.placement.window, self.placement.dpi, cover)
             .and_then(|bitmap| unsafe { gpu.res.CreateBitmapBrush(&bitmap, None, None) });
         match made {
             Ok(brush) => gpu.backdrop = Some(brush),

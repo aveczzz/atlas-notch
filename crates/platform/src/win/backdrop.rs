@@ -9,7 +9,8 @@
 //! A fotografia é tirada em repouso, com a pílula preta no sítio: essa zona é "remendada"
 //! repetindo a linha logo abaixo dela, para não aparecer um retângulo preto no vidro.
 
-use super::geometry::{EAR, REST};
+
+use std::sync::atomic::{AtomicBool, Ordering};
 use super::window::PxRect;
 use windows::Win32::Foundation::E_FAIL;
 use windows::Win32::Graphics::Direct2D::Common::{
@@ -29,17 +30,26 @@ use windows::core::{Error, Interface, Result};
 
 /// Desfoque, em DIPs (desvio padrão do Gaussian Blur).
 const BLUR_DIP: f32 = 24.0;
+/// A primeira fotografia de cada arranque já foi para o log.
+static FIRST_LOGGED: AtomicBool = AtomicBool::new(false);
 /// Cores mais vivas atrás do vidro (o `saturate(170%)` do mockup).
 const SATURATION: f32 = 1.7;
 
 /// Fotografa a zona `window` do ecrã e devolve-a desfocada, pronta a pintar. `dpi`: o da
 /// janela, para o bitmap ter o tamanho certo em DIPs. `res`: contexto de recursos (só cria
 /// bitmaps e desenha fora do ecrã).
-pub fn capture(res: &ID2D1DeviceContext, window: PxRect, dpi: u32) -> Result<ID2D1Bitmap1> {
+pub fn capture(res: &ID2D1DeviceContext, window: PxRect, dpi: u32, cover: (f32, f32)) -> Result<ID2D1Bitmap1> {
     let (w, h) = (window.w.max(1) as usize, window.h.max(1) as usize);
     let scale = dpi as f32 / 96.0;
     let mut pixels = grab(window)?;
-    patch_pill(&mut pixels, w, h, scale);
+    // Diagnóstico para o island.log: a primeira fotografia de cada arranque, e qualquer uma preta.
+    let (mean, max) = luminance(&pixels);
+    if max < 8 {
+        log!("vidro: a fotografia do ecrã veio PRETA ({w}x{h} px em ({},{}) a {dpi} DPI): o Windows não deixou ler o ecrã", window.x, window.y);
+    } else if !FIRST_LOGGED.swap(true, Ordering::Relaxed) {
+        log!("vidro: fotografia {w}x{h} px em ({},{}) a {dpi} DPI, luminância média {mean:.0}", window.x, window.y);
+    }
+    patch_pill(&mut pixels, w, h, scale, cover);
 
     let dpi = dpi as f32;
     let size = D2D_SIZE_U { width: w as u32, height: h as u32 };
@@ -137,14 +147,15 @@ fn grab(r: PxRect) -> Result<Vec<u8>> {
     }
 }
 
-/// A pílula preta (repouso) está no meio de cima da fotografia: repete a linha logo abaixo
-/// dela por cima, para o desfoque não ter um retângulo preto.
-fn patch_pill(pixels: &mut [u8], w: usize, h: usize, scale: f32) {
-    let half = ((REST.w / 2.0 + EAR) * scale).ceil() as usize + 2;
-    let pill_h = (REST.h * scale).ceil() as usize + 2;
+/// A forma que a island tem no momento da fotografia (a pílula em repouso, ou o notch largo de
+/// um evento) está no meio de cima da fotografia: repete a linha logo abaixo dela por cima, para
+/// o desfoque não ter um retângulo preto. `cover`: meia largura e altura da forma, em DIPs.
+fn patch_pill(pixels: &mut [u8], w: usize, h: usize, scale: f32, cover: (f32, f32)) {
+    let half = (cover.0 * scale).ceil() as usize + 2;
+    let pill_h = (cover.1 * scale).ceil() as usize + 2;
     let (x0, x1) = ((w / 2).saturating_sub(half), (w / 2 + half).min(w));
     let src = (pill_h + 2).min(h.saturating_sub(1));
-    if src <= pill_h {
+    if src <= pill_h || x1 <= x0 {
         return;
     }
     let row: Vec<u8> = pixels[(src * w + x0) * 4..(src * w + x1) * 4].to_vec();
@@ -153,9 +164,23 @@ fn patch_pill(pixels: &mut [u8], w: usize, h: usize, scale: f32) {
     }
 }
 
+/// Luminância média e máxima (0-255) de uma amostra dos pixeis BGRA: para o log dizer se a
+/// fotografia veio preta (o Windows não deixou ler o ecrã) em vez de o vidro só "não desfocar".
+fn luminance(pixels: &[u8]) -> (f32, u8) {
+    let (mut sum, mut max, mut n) = (0u64, 0u8, 0u64);
+    for p in pixels.as_chunks::<4>().0.iter().step_by(37) {
+        let l = ((p[2] as u32 * 54 + p[1] as u32 * 183 + p[0] as u32 * 19) >> 8) as u8;
+        sum += l as u64;
+        max = max.max(l);
+        n += 1;
+    }
+    (if n == 0 { 0.0 } else { sum as f32 / n as f32 }, max)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::win::geometry::{EAR, REST};
 
     #[test]
     fn the_pill_area_is_replaced_by_the_row_below_it() {
@@ -168,7 +193,7 @@ mod tests {
                 px[(y * w + x) * 4..(y * w + x) * 4 + 3].fill(0);
             }
         }
-        patch_pill(&mut px, w, h, 1.0);
+        patch_pill(&mut px, w, h, 1.0, (REST.w / 2.0 + EAR, REST.h));
         let at = |x: usize, y: usize| px[(y * w + x) * 4];
         assert_eq!(at(w / 2, 5), 200, "a pílula foi remendada");
         assert_eq!(at(w / 2, 20), 200);
