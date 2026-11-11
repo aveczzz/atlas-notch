@@ -1,0 +1,35 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Testes
+        run: cargo test --workspace
+
+      - name: Compilar
+        run: cargo build --release
+
+      - name: Empacotar
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory dist | Out-Null
+          Copy-Item target\release\island.exe, target\release\island-hook.exe dist\
+          Copy-Item packaging dist\packaging -Recurse
+          Compress-Archive dist\* atlas-notch-windows.zip
+
+      - name: Publicar na Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: atlas-notch-windows.zip
