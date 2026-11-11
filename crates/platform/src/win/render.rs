@@ -636,7 +636,13 @@ impl Art {
         }
         self.key = image.cloned();
         self.bitmap = image.and_then(|a| {
-            decode_art(&a.0, side_px.round() as u32).map_err(|e| log!("render: imagem inválida: {e}")).ok()
+            decode_art(&a.0, side_px.round() as u32)
+                .map_err(|e| {
+                    // O tamanho e os primeiros bytes dizem o formato e se veio cortada.
+                    let head: Vec<String> = a.0.iter().take(4).map(|b| format!("{b:02X}")).collect();
+                    log!("render: imagem inválida ({} bytes, começa por {}): {e}", a.0.len(), head.join(" "));
+                })
+                .ok()
         });
         true
     }
@@ -1298,6 +1304,8 @@ mod tests {
         assert_eq!(w.min(h), 90, "o lado menor fica com o tamanho da capa");
         assert_eq!((w, h), (144, 90), "mantém a proporção (320:200)");
         assert!(decode_art(b"isto nao e uma imagem", 90).is_err());
+        // Uma imagem cortada a meio (o que o LoadAsync parcial produzia) é recusada sem pânico.
+        assert!(decode_art(&image[..image.len() / 3], 90).is_err() || decode_art(&image[..60], 90).is_err());
     }
 
     /// Um BMP de 32 bits (BGRA) com um gradiente, para o WIC descodificar.

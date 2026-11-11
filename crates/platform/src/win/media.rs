@@ -27,7 +27,7 @@ use windows::Media::Control::{
 };
 use windows::Storage::Streams::DataReader;
 use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
-use windows::core::{Interface, Result};
+use windows::core::{Error, Interface, Result};
 
 /// Capas maiores do que isto ficam de fora (regra 6). As normais têm 10-300 KB.
 const MAX_ARTWORK: u64 = 4 * 1024 * 1024;
@@ -189,7 +189,7 @@ struct Images {
 
 /// Estado atual da sessão, ou `None` se não tem nada a mostrar (sem título).
 fn read_state(session: &Session, images: &mut Images) -> Result<Option<MediaState>> {
-    let props = session.TryGetMediaPropertiesAsync()?.join()?;
+    let props = session.TryGetMediaPropertiesAsync().and_then(|op| op.join()).map_err(stage("pedir as propriedades da música"))?;
     let title = props.Title()?.to_string_lossy();
     if title.trim().is_empty() {
         return Ok(None);
@@ -199,7 +199,10 @@ fn read_state(session: &Session, images: &mut Images) -> Result<Option<MediaStat
     let source_app = session.SourceAppUserModelId()?.to_string_lossy();
     let key = (title.clone(), artist.clone());
     if images.art_key.as_ref() != Some(&key) {
-        images.artwork = read_artwork(&props);
+        images.artwork = read_artwork(&props).unwrap_or_else(|e| {
+            log!("media: capa de \"{title}\": {e}");
+            None
+        });
         images.art_key = Some(key);
     }
     if images.icon_key.as_ref() != Some(&source_app) {
@@ -216,18 +219,40 @@ fn read_state(session: &Session, images: &mut Images) -> Result<Option<MediaStat
     }))
 }
 
-/// Bytes da capa (PNG/JPEG), se houver e não for absurda.
-fn read_artwork(props: &Properties) -> Option<ImageData> {
-    let reference = props.Thumbnail().ok()?;
-    let stream = reference.OpenReadAsync().ok()?.join().ok()?;
-    let size = stream.Size().ok()?;
+/// Acrescenta ao erro o passo em que falhou, para o `island.log` dizer onde (o código do
+/// Windows sozinho engana: um `0x80030070` diz "disco cheio" sem o disco ter nada a ver).
+fn stage(what: &'static str) -> impl Fn(Error) -> Error {
+    move |e| Error::new(e.code(), format!("{what}: {}", e.message()))
+}
+
+/// Bytes da capa (PNG/JPEG). `Ok(None)` se a música não tem capa ou ela é absurda; `Err` com o
+/// passo que falhou se o Windows não a deu.
+fn read_artwork(props: &Properties) -> Result<Option<ImageData>> {
+    // Sem miniatura é o normal (rádio, alguns sites): não é erro.
+    let Ok(reference) = props.Thumbnail() else { return Ok(None) };
+    let stream = reference.OpenReadAsync().and_then(|op| op.join()).map_err(stage("abrir a miniatura"))?;
+    let size = stream.Size().map_err(stage("tamanho da miniatura"))?;
     if size == 0 || size > MAX_ARTWORK {
-        return None;
+        return Ok(None);
     }
-    let reader = DataReader::CreateDataReader(&stream).ok()?;
-    let load: IAsyncOperation<u32> = reader.LoadAsync(size as u32).ok()?.cast().ok()?;
-    let loaded = load.join().ok()?;
-    let mut bytes = vec![0u8; loaded as usize];
-    reader.ReadBytes(&mut bytes).ok()?;
-    Some(ImageData(bytes.into()))
+    let reader = DataReader::CreateDataReader(&stream).map_err(stage("ler a miniatura"))?;
+    // O `LoadAsync` pode trazer MENOS bytes do que os pedidos (streams lentos, como as
+    // miniaturas dos browsers): lê-se até ter tudo ou o stream acabar.
+    let mut bytes = Vec::with_capacity(size as usize);
+    while (bytes.len() as u64) < size {
+        let falta = (size - bytes.len() as u64) as u32;
+        let load: IAsyncOperation<u32> = reader.LoadAsync(falta).map_err(stage("ler a miniatura"))?.cast()?;
+        let loaded = load.join().map_err(stage("ler a miniatura"))?;
+        if loaded == 0 {
+            break;
+        }
+        let mut chunk = vec![0u8; loaded as usize];
+        reader.ReadBytes(&mut chunk).map_err(stage("ler a miniatura"))?;
+        bytes.extend_from_slice(&chunk);
+    }
+    if (bytes.len() as u64) < size {
+        log!("media: capa incompleta ({} de {size} bytes): fica sem capa", bytes.len());
+        return Ok(None);
+    }
+    Ok(Some(ImageData(bytes.into())))
 }
