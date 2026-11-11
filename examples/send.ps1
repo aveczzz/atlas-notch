@@ -1,5 +1,5 @@
 # Exemplo: mostrar algo na island a partir de qualquer script PowerShell.
-# Uso: .\send.ps1 -Source backup -Title "Backup GASCOMB" -Progress 0.4 -TtlMs 5000
+# Uso: .\send.ps1 -Source backup -Title "Backup do servidor" -Progress 0.4 -TtlMs 5000
 param(
     [Parameter(Mandatory)][string]$Source,
     [Parameter(Mandatory)][string]$Title,

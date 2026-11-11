@@ -14,7 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      
+      # Uma release nunca sai com testes partidos ou avisos.
+      - name: Testes
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Compilar
         run: cargo build --release

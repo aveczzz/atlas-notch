@@ -174,14 +174,14 @@ mod tests {
     const TITLES: &[&str] = &[
         "main.rs - island - Visual Studio Code",
         "● README.md - atlas-island - Visual Studio Code",
-        "activesync - Visual Studio Code",
+        "loja-online - Visual Studio Code",
     ];
 
     #[test]
     fn exact_title_segment_wins() {
         assert_eq!(pick_window(TITLES, Some("atlas-island")), Some(1));
         assert_eq!(pick_window(TITLES, Some("island")), Some(0), "não confunde com atlas-island");
-        assert_eq!(pick_window(TITLES, Some("ActiveSync")), Some(2), "sem diferença de maiúsculas");
+        assert_eq!(pick_window(TITLES, Some("Loja-Online")), Some(2), "sem diferença de maiúsculas");
     }
 
     #[test]

@@ -27,7 +27,7 @@ Decisões do utilizador (2026-11-07):
   | Estado | Tamanho | Raio de baixo | Conteúdo |
   |---|---|---|---|
   | Repouso | 190 × 32 | 14 | ícone à esquerda, indicador/texto curto à direita |
-  | Evento | até ~360 × 40, largura pelo texto | 20 | ex.: `activesync: precisa de ti`, HUD de volume |
+  | Evento | até ~360 × 40, largura pelo texto | 20 | ex.: `loja-online: precisa de ti`, HUD de volume |
   | Expandido (hover) | 640 × 192 | 38 | painel com separadores |
 
 - **Borda azul suave** (`#3AA0FF`) para distinguir a ilha do resto do ecrã (pedido do utilizador, 2026-11-08):

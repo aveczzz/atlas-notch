@@ -220,14 +220,14 @@ mod tests {
         let v = json!({
             "session_id": "abc",
             "transcript_path": "C:\\Users\\r\\.claude\\x.jsonl",
-            "cwd": "C:\\Users\\r\\code\\activesync\\",
+            "cwd": "C:\\Users\\r\\code\\loja-online\\",
             "hook_event_name": "PreToolUse",
             "tool_name": "Bash",
             "tool_input": {"command": "cargo build"}
         });
         let h = map_hook(&v, Agent::Claude).unwrap();
         assert_eq!(h.event, HookEvent::PreToolUse);
-        assert_eq!(h.project.as_deref(), Some("activesync"));
+        assert_eq!(h.project.as_deref(), Some("loja-online"));
         assert_eq!(h.tool.as_deref(), Some("Bash"));
     }
 

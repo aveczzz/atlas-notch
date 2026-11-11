@@ -1283,9 +1283,36 @@ mod tests {
     fn artwork_is_decoded_already_reduced_to_cover_the_art_box() {
         // SAFETY: COM nesta thread de teste, antes do WIC.
         unsafe { CoInitializeEx(None, COINIT_MULTITHREADED).ok().unwrap() };
-        let png = include_bytes!("../../../../docs/ui/ref-musica-detalhe.png");
-        let (_, (w, h)) = decode_art(png, 90).unwrap();
+        // Uma imagem gerada aqui (não depende de ficheiros fora do repositório): 320 x 200, não
+        // quadrada, como as miniaturas de vídeos.
+        let image = bmp(320, 200);
+        let (_, (w, h)) = decode_art(&image, 90).unwrap();
         assert_eq!(w.min(h), 90, "o lado menor fica com o tamanho da capa");
+        assert_eq!((w, h), (144, 90), "mantém a proporção (320:200)");
         assert!(decode_art(b"isto nao e uma imagem", 90).is_err());
+    }
+
+    /// Um BMP de 32 bits (BGRA) com um gradiente, para o WIC descodificar.
+    fn bmp(w: u32, h: u32) -> Vec<u8> {
+        let pixels = w * h * 4;
+        let mut v = Vec::with_capacity(54 + pixels as usize);
+        // BITMAPFILEHEADER (14 bytes).
+        v.extend_from_slice(b"BM");
+        v.extend_from_slice(&(54 + pixels).to_le_bytes());
+        v.extend_from_slice(&[0; 4]);
+        v.extend_from_slice(&54u32.to_le_bytes());
+        // BITMAPINFOHEADER (40 bytes): altura negativa = linhas de cima para baixo.
+        v.extend_from_slice(&40u32.to_le_bytes());
+        v.extend_from_slice(&(w as i32).to_le_bytes());
+        v.extend_from_slice(&(-(h as i32)).to_le_bytes());
+        v.extend_from_slice(&1u16.to_le_bytes());
+        v.extend_from_slice(&32u16.to_le_bytes());
+        v.extend_from_slice(&[0; 24]);
+        for y in 0..h {
+            for x in 0..w {
+                v.extend_from_slice(&[(x * 255 / w) as u8, (y * 255 / h) as u8, 128, 255]);
+            }
+        }
+        v
     }
 }
