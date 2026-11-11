@@ -303,6 +303,13 @@ fn run_loop(engine: &mut Engine, dev_stdin: bool) -> io::Result<()> {
                         _ => ui.tab_at = None,
                     }
                 }
+                // O "rato saiu" também chega quando a island larga a captura do rato (ao abrir um
+                // ficheiro da aba Ficheiros) ou quando outra janela aparece, com o cursor ainda por
+                // cima. Confirma-se onde está o cursor: se continua dentro da forma, não é saída.
+                // O próximo movimento volta a pedir o aviso de saída (`TrackMouseEvent`).
+                Input::Leave
+                    if ui.hovered
+                        && window::cursor_in_window(hwnd).is_some_and(|(x, y)| renderer.shape_contains(x, y)) => {}
                 Input::Leave => {
                     ui.tab_at = None;
                     // Só se estava dentro da forma: sair da região sem lá ter entrado não

@@ -36,6 +36,7 @@ use windows::Win32::Foundation::{
 };
 use windows::Win32::Graphics::Gdi::{
     CreatePolygonRgn, DeleteObject, GetMonitorInfoW, HMONITOR, MONITOR_DEFAULTTONULL, MONITOR_DEFAULTTOPRIMARY,
+    ScreenToClient,
     MONITORINFO, MonitorFromPoint, SetWindowRgn, WINDING,
 };
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -128,6 +129,20 @@ pub fn capture(hwnd: HWND, on: bool) {
             let _ = ReleaseCapture();
         }
     }
+}
+
+/// Onde está o cursor agora, em pixeis da janela. Serve para confirmar um `WM_MOUSELEAVE`: o
+/// Windows também o manda quando a janela larga a captura do rato (`ReleaseCapture`, ao abrir um
+/// ficheiro da aba Ficheiros ou ao largar um slider) ou quando outra janela aparece, com o cursor
+/// ainda por cima da island.
+pub fn cursor_in_window(hwnd: HWND) -> Option<(i32, i32)> {
+    let mut pt = POINT::default();
+    // SAFETY: `pt` é local; `hwnd` é a nossa janela, na thread dona.
+    unsafe {
+        GetCursorPos(&mut pt).ok()?;
+        ScreenToClient(hwnd, &mut pt).ok().ok()?;
+    }
+    Some((pt.x, pt.y))
 }
 
 /// Coordenadas com sinal nas 16 palavras baixas do `lparam` (GET_X/Y_LPARAM).
